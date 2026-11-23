@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SafeDoor 관제</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE work: 학교 시설 관제 화면, 차분하고 정확하게
+   IDEA 복도에 붙은 피난안내도 + 건축 화이트 모형 / 홀로그램 테마는 검은 격자 위 하늘색 선 도면
+   PICTURE 한 층 전체 3D 모형 위에 설비 위치, 막힘 상태, 경로, 시제품 LED를 직접 표시
+   COLOUR 흰 종이 / 먹색 선 / 콘크리트 회색 면 / 소방 적색 · 비상구 녹색 · 주의 노랑
+   TYPE IBM Plex Sans KR 600 + 400
+   LAYOUT 노트북: 모형 전체 + 오른쪽 368px 패널 + 아래 기록 줄 / 폰: 모형 58vh, 그 아래 패널 */
+:root{color-scheme:light dark;
+--bg:light-dark(#ffffff,#151615);--ink:light-dark(#141414,#ecebe6);--mute:light-dark(#5e5e59,#a6a69f);--rule:light-dark(#e3e3de,#30312f);--soft:light-dark(#f2f2ee,#222321);
+--scene:light-dark(#f1f1ed,#101110);--room:light-dark(#e4e4df,#262725);--corr:light-dark(#fbfbf8,#30312e);--wc:light-dark(#dde4e7,#232a2d);--stair:light-dark(#d6eadc,#1c3325);
+--wall:light-dark(#ffffff,#3b3c39);--line:light-dark(#1a1a18,#8f908a);--desk:light-dark(#c9c9c3,#4a4b46);--board:light-dark(#2f4a3c,#2c4236);--box:light-dark(#c8a072,#8a6a45);
+--red:light-dark(#d52b1e,#ff5b4d);--green:light-dark(#0a8a4a,#38c27c);--yellow:light-dark(#e3a900,#f2c94c);--grid:light-dark(#d0d0ca,#2a2b29);--locker:light-dark(#ece6d2,#4c4838);--steel:light-dark(#c2c6ca,#7a8086)}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+:root[data-skin=holo]{color-scheme:dark;--bg:#04080b;--ink:#c9efff;--mute:#6ea8bd;--rule:#11303d;--soft:#0a1820;--scene:#010406;--room:#02080c;--corr:#041017;--wc:#02080c;--stair:#03141b;--wall:#46cfff;--line:#5fdcff;--desk:#2fa6d1;--board:#1b6f8f;--box:#ffb44a;--red:#ff4d5e;--green:#3dffb4;--yellow:#ffd34d;--grid:#0e3d4f;--locker:#2fa6d1;--steel:#1b6f8f}
+*{box-sizing:border-box;min-width:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 'IBM Plex Sans KR',system-ui,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;overflow-x:clip;display:grid;grid-template-rows:auto minmax(0,1fr) auto;word-break:keep-all}
+button{font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px;min-height:38px;padding:0 12px;cursor:pointer}
+button:hover{border-color:var(--line)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+@media(pointer:coarse){button{min-height:44px}}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;padding:10px 16px;border-bottom:1px solid var(--rule)}
+header h1{font-size:20px;line-height:1.1;margin:0;font-weight:700;letter-spacing:-.01em}
+header .ttl span{display:block;font-size:13px;color:var(--mute)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0}
+.seg button[aria-pressed=true],.tg[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tg.fire[aria-pressed=true]{background:var(--red);border-color:var(--red);color:#fff}
+main{display:grid;grid-template-columns:minmax(0,1fr) 368px;min-height:0}
+#view{position:relative;overflow:hidden;background:var(--scene)}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#ov{position:absolute;inset:0;pointer-events:none}
+.rl{position:absolute;left:0;top:0;font-size:13px;line-height:1.2;color:var(--mute);white-space:nowrap;text-align:center}
+.rl em{display:block;font-style:normal;font-weight:600;color:var(--green)}
+#ov.nolab .rl{display:none!important}
+.mk{position:absolute;left:0;top:0;width:0;height:0}
+.pin{position:absolute;left:0;bottom:0;transform:translate(-50%,-4px);display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:13px;font-weight:600;line-height:1;padding:6px 10px 6px 8px;border-radius:999px;background:var(--bg);color:var(--ink);border:1.5px solid var(--line);pointer-events:auto;min-height:28px}
+.pin small{font-size:13px;font-weight:400;display:none}
+#ov.heat .pin small{display:inline}
+#ov.plan .mk.s .pin{bottom:auto;top:0;transform:translate(-50%,4px)}
+.dot,.sd{flex:none;width:10px;height:10px;border-radius:50%;background:var(--green)}
+.mk[data-s=caution] .pin{background:var(--yellow);border-color:var(--yellow);color:#1c1600}
+.mk[data-s=danger] .pin{background:var(--red);border-color:var(--red);color:#fff}
+.mk[data-s=off] .pin{border-style:dashed;color:var(--mute)}
+.mk[data-s=caution] .dot,.mk[data-s=danger] .dot{background:currentColor}
+.mk.fh .pin{border-radius:6px}
+.mk.fh .dot,.sd.sq{border-radius:2px}
+.lgk{width:12px;height:12px;border:1.5px solid var(--ink);border-radius:50%;display:inline-block}
+.lgk.sq{border-radius:3px}
+.tg.edit{border-style:dashed}
+.simfab{position:absolute;top:12px;right:12px;z-index:3;font-weight:600;min-height:40px;padding:0 14px;border:1.5px solid var(--ink);background:var(--bg)}
+.simfab[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+body.simon #legend,body.simon #skip{display:none}
+.simtag{position:absolute;left:0;top:0;pointer-events:none;text-align:center;white-space:nowrap;background:var(--bg);border:2px solid var(--green);border-radius:8px;padding:6px 12px;line-height:1.3}
+.simtag b{display:block;font-size:20px;letter-spacing:.01em}
+.simtag span{font-size:13px;color:var(--mute)}
+.simtag[data-s=caution]{border-color:var(--yellow)}
+.simtag[data-s=danger]{border-color:var(--red);background:var(--red);color:#fff}
+.simtag[data-s=danger] span{color:#fff}
+.simtag[data-s=off]{border-color:var(--mute)}
+.simlab{position:absolute;left:0;top:0;pointer-events:none;font-size:13px;white-space:nowrap;color:var(--mute);background:color-mix(in srgb,var(--bg) 85%,transparent);padding:1px 5px;border-radius:4px}
+.simlab.in{color:#fff;background:var(--red);font-weight:600}
+.simlab.rul{background:none;padding:0}
+.steps{margin:0 0 12px;padding-left:20px;font-size:14px}
+.steps li{margin:4px 0}
+.erow.on{background:var(--soft)}
+.p input[type=text]{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px;padding:8px 10px;margin-top:4px}
+#eOut{width:100%;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--ink);background:var(--soft);border:1px solid var(--rule);border-radius:6px;padding:8px;resize:vertical;white-space:pre;overflow:auto}
+.pin .fd{display:none;font-style:normal;font-weight:400}
+body.fire .pin .fd{display:inline}
+.mk.sel .pin{box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--ink)}
+.sd[data-s=caution]{background:var(--yellow)}
+.sd[data-s=danger]{background:var(--red)}
+.sd[data-s=off],.mk[data-s=off] .dot{background:var(--mute)}
+.tag{position:absolute;left:0;top:0;font-size:13px;font-weight:600;color:#fff;background:var(--red);padding:4px 8px;border-radius:4px;white-space:nowrap}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--red) 55%,transparent)}100%{box-shadow:0 0 0 12px transparent}}
+@keyframes beacon{50%{opacity:.35}}
+@media(prefers-reduced-motion:no-preference){.mk[data-s=danger]:not(.sel) .pin{animation:pulse 1.6s infinite}body.fire .mk:not([data-s=danger]) .pin{animation:beacon 1s steps(2) infinite}}
+#hud{position:absolute;left:12px;bottom:12px;max-width:calc(100% - 24px);background:var(--bg);border:1px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:14px;line-height:1.45}
+#hud b{font-weight:600}
+#legend{position:absolute;right:12px;bottom:12px;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px;color:var(--mute);background:var(--bg);border:1px solid var(--rule);border-radius:8px;padding:7px 10px}
+#legend span{display:inline-flex;align-items:center;gap:6px}
+#legend i{width:16px;height:4px;background:var(--ink);display:inline-block}
+#skip{position:absolute;left:50%;top:12px;transform:translateX(-50%);font-size:13px;color:var(--mute);background:var(--bg);border:1px solid var(--rule);border-radius:999px;padding:5px 12px}
+#nogl{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--mute)}
+aside{border-left:1px solid var(--rule);overflow-y:auto;background:var(--bg);position:relative}
+.sidetop{position:sticky;top:0;z-index:2;display:flex;justify-content:flex-end;padding:6px 10px 0;background:var(--bg)}
+.lnk{border:0;background:none;color:var(--mute);min-height:32px;padding:0 6px;font-size:14px}
+.lnk:hover{color:var(--ink)}
+main.col{grid-template-columns:minmax(0,1fr) 52px}
+main.col #panel{display:none}
+main.col .sidetop{height:100%;padding:8px 0;justify-content:center}
+main.col #pCol{writing-mode:vertical-rl;min-height:120px;color:var(--ink)}
+details.sec{margin-top:12px;border-top:1px solid var(--rule);padding-top:6px}
+details.sec>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px;font-weight:600;line-height:1.35;min-height:38px}
+details.sec>summary::-webkit-details-marker{display:none}
+details.sec>summary::after{content:"";flex:none;width:8px;height:8px;border-right:2px solid var(--mute);border-bottom:2px solid var(--mute);transform:translateY(-3px) rotate(45deg)}
+details.sec:not([open])>summary::after{transform:rotate(-45deg)}
+details.sec>summary:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+details.sec .sb{padding:2px 0 8px}
+.secbar{display:flex;justify-content:flex-end;margin-top:10px}
+.stp{display:flex;align-items:center;gap:10px;font-size:14px;margin-top:14px;color:var(--mute)}
+.stp select{flex:1;font:inherit;font-size:16px;min-height:40px;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px;padding:0 8px}
+.auto{margin:0 0 6px;font-size:13px;color:var(--red);font-weight:600}
+.ftag{position:absolute;left:0;top:0;pointer-events:auto;font-size:14px;font-weight:700;min-height:32px;padding:0 10px;border-radius:6px;background:var(--bg);border:1.5px solid var(--line);white-space:nowrap}
+.ftag.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.p{padding:18px 18px 28px}
+.p h2{font-size:28px;line-height:1.12;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance;font-weight:700}
+.sub{margin:0 0 14px;color:var(--mute);font-size:15px}
+.figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-top:12px}
+.figs div{padding:10px 8px 10px 0}
+.figs div+div{padding-left:10px;border-left:1px solid var(--rule)}
+.figs b{display:block;font-size:24px;line-height:1.15;white-space:nowrap;font-variant-numeric:tabular-nums}
+.figs span{font-size:13px;color:var(--mute)}
+.sec{margin-top:22px}
+.sec h3{font-size:15px;line-height:1.35;margin:0 0 10px;font-weight:600}
+.sec p{margin:0;font-size:15px}
+.hrs{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:2px;height:84px;align-items:end;border-bottom:1px solid var(--line)}
+.hrs i{display:block;background:var(--desk);min-height:1px}
+.hrs i.pk{background:var(--ink)}
+.hax{display:flex;justify-content:space-between;font-size:13px;color:var(--mute);margin-top:4px}
+.row{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:6px 10px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--rule);border-radius:0;padding:10px 2px;background:none;min-height:44px}
+.row .rv{font-variant-numeric:tabular-nums;white-space:nowrap}
+.row .rb{grid-column:2/4;height:4px;background:var(--soft)}
+.row .rb i{display:block;height:100%;background:var(--ink)}
+.row .rn b{font-weight:600}
+.back{border:0;padding:0 4px 0 0;margin:-6px 0 8px;color:var(--mute)}
+.state{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;align-items:center;padding:12px 0;margin-top:12px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.st{font-size:13px;font-weight:600;padding:3px 9px;border-radius:4px;background:var(--green);color:#fff;white-space:nowrap}
+.st[data-s=caution]{background:var(--yellow);color:#1c1600}
+.st[data-s=danger]{background:var(--red)}
+.st[data-s=off]{background:var(--mute)}
+.state b{font-size:20px;line-height:1.2}
+.state .tm{grid-column:2;color:var(--mute);font-size:14px;font-variant-numeric:tabular-nums}
+.sn{display:grid;grid-template-columns:4.6em minmax(0,1fr) 3.6em;gap:10px;align-items:center;font-size:13px;margin:6px 0}
+.sn .v{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{position:relative;height:8px;background:var(--soft);border-radius:4px}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--line)}
+.bar i.in{background:var(--red)}
+.bar u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--red)}
+.why{margin-top:10px!important;color:var(--mute)}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.ev{list-style:none;margin:0;padding:0;font-size:14px}
+.ev li{display:grid;grid-template-columns:10px 3.2em minmax(0,1fr);gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--rule)}
+.ev time{color:var(--mute);font-variant-numeric:tabular-nums}
+.ev .sd{transform:translateY(-1px)}
+table.kv{width:100%;border-collapse:collapse;font-size:14px}
+.kv td{padding:6px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+.kv td:first-child{color:var(--mute);width:7.5em;padding-right:10px}
+.seg3{display:flex;gap:8px;flex-wrap:wrap}
+.seg3 button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.note{font-size:13px!important;color:var(--mute);margin-top:18px!important}
+.no{color:var(--red);font-weight:600}
+.proto{border-top:1px solid var(--rule);padding-top:16px}
+.ledrow{display:flex;gap:16px;align-items:center;margin:14px 0 6px}
+.ring{position:relative;width:76px;height:76px;flex:none;border-radius:50%;background:var(--soft);border:1px solid var(--rule)}
+.ring i{position:absolute;left:50%;top:50%;width:9px;height:9px;margin:-4.5px;border-radius:50%;background:var(--led,#2b2b2b);box-shadow:0 0 7px var(--glow,transparent)}
+.fw b{display:block;font-size:19px;line-height:1.2}
+.fw span{display:block;font-size:14px;color:var(--mute)}
+.flags{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14px;margin:8px 0 4px}
+.flags b{font-weight:600}
+.rg{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;margin-top:14px}
+input[type=range]{width:100%;height:30px;accent-color:var(--ink);margin:2px 0 0}
+.sim{margin-top:16px;padding:12px;border:1px dashed var(--rule);border-radius:8px}
+.sim h3{margin-bottom:6px}
+footer{display:flex;align-items:center;gap:6px;overflow-x:auto;border-top:1px solid var(--rule);padding:6px 12px;white-space:nowrap}
+footer b{font-size:13px;margin-right:10px;flex:none}
+.lg{display:inline-flex;align-items:center;gap:7px;border:0;background:none;font-size:13px;min-height:34px;padding:0 8px;flex:none}
+.lg time{color:var(--mute);font-variant-numeric:tabular-nums}
+@media(max-width:820px){
+html,body{height:auto}
+body{display:block}
+main{display:block}
+#view{height:58vh;min-height:340px}
+aside{border-left:0;border-top:1px solid var(--rule)}
+footer{position:sticky;bottom:0;background:var(--bg)}
+}
+@media(max-width:600px){#legend{display:none}.p h2{font-size:24px}header h1{font-size:18px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="ttl"><h1>SafeDoor 관제</h1><span>복정고 본관 1~4층 · 2층 피난안내도 기반 근사 도면</span></div>
+  <div class="tools">
+    <div class="seg" role="group" aria-label="층">
+      <button id="flall" aria-pressed="true">모든 층</button>
+      <button id="fl1" aria-pressed="false">1층</button>
+      <button id="fl2" aria-pressed="false">2층</button>
+      <button id="fl3" aria-pressed="false">3층</button>
+      <button id="fl4" aria-pressed="false">4층</button>
+    </div>
+    <div class="seg" role="group" aria-label="보기 방식">
+      <button id="v3d" aria-pressed="true">3D</button>
+      <button id="vplan" aria-pressed="false">평면도</button>
+    </div>
+    <div class="seg" role="group" aria-label="설비 종류">
+      <button id="fall" aria-pressed="true">모두</button>
+      <button id="fFE" aria-pressed="false">소화기함</button>
+      <button id="fFH" aria-pressed="false">소화전</button>
+    </div>
+    <button id="tXray" class="tg" aria-pressed="false">벽 투시</button>
+    <button id="tSkin" class="tg" aria-pressed="false">홀로그램</button>
+    <button id="tHeat" class="tg" aria-pressed="false">막힘 빈도</button>
+    <button id="tLab" class="tg" aria-pressed="true">실 이름</button>
+    <button id="tMask" class="tg" aria-pressed="true">아래쪽 가림</button>
+    <button id="tFire" class="tg fire" aria-pressed="false">화재 시뮬레이션</button>
+    <button id="tFit">전체 보기</button>
+    <button id="tEdit" class="tg edit" aria-pressed="false">위치 찍기 (임시)</button>
+  </div>
+</header>
+<main>
+  <section id="view" aria-label="복정고 본관 2층 모형">
+    <canvas id="c"></canvas>
+    <div id="ov"></div>
+    <div id="hud" hidden></div>
+    <button id="tSim" class="simfab" aria-pressed="false">시뮬 공간</button>
+    <div id="skip" hidden>화면을 누르면 건너뜁니다</div>
+    <div id="legend">
+      <span><span class="lgk"></span>소화기함</span>
+      <span><span class="lgk sq"></span>소화전</span>
+      <span><span class="sd"></span>정상</span>
+      <span><span class="sd" data-s="caution"></span>주의</span>
+      <span><span class="sd" data-s="danger"></span>위험</span>
+      <span><i></i>관리자 경로</span>
+      <span class="lf" hidden><i style="background:var(--red)"></i>소화기까지</span>
+      <span class="lf" hidden><i style="background:var(--green)"></i>대피</span>
+    </div>
+    <div id="nogl" hidden>이 브라우저에서는 3D 모형을 그릴 수 없습니다. 오른쪽 현황과 기록은 그대로 볼 수 있습니다.</div>
+  </section>
+  <aside id="side"><div class="sidetop"><button id="pCol" class="lnk" aria-expanded="true" aria-controls="panel">접기</button></div><div id="panel" aria-live="polite"></div></aside>
+</main>
+<footer id="log"></footer>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script>
+{
+const $=s=>document.querySelector(s);
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const CS=.5,X0=-21,Z0=-1,NX=210,NZ=86,N=NX*NZ,WH=2,WT=.2,FR=3.5,WALK=1.3,RUN=3;
+const BW=96,BD=42,C={x:38,z:20};
+
+/* ---------- 도면: 복정고 본관 2층 (피난안내도 기반 근사, 단위 m, z가 클수록 남쪽) ---------- */
+const R=(n,t,x0,z0,x1,z1,d=[],open)=>({n,t,x0,z0,x1,z1,d,open});
+const cls=(n,x)=>R(n,'class',x,30,x+9,38,[['n',x+.6,x+2],['n',x+7.2,x+8.6]]);
+const ROOMS=[
+ cls('1-1반',1),cls('1-2반',10),cls('1-3반',19),cls('1-4반',28),
+ R('1학년 교무실','office',37,30,46,41,[['n',40.8,42.2]]),
+ cls('1-5반',46),cls('1-6반',55),cls('1-7반',64),cls('1-8반',73),
+ R('서쪽 계단','stair',0,18,4,27,[],'s'),
+ R('화장실(여)','wc',4,19,9,27,[['s',7,8.2]]),
+ R('화장실(남)','wc',9,19,14,27,[['s',12,13.2]]),
+ R('여교사휴게실','office',29,17,38,19.5,[['e',17.6,18.8]]),
+ R('학년상담실','office',29,19.5,38,24.5,[['e',21,22.4]]),
+ R('음수대','alcove',32,24.5,38,27,[],'s'),
+ R('서고','store',45,14,49,21,[['w',15,16.2]]),
+ R('엘리베이터','elv',45,22,49,27,[['s',46.4,47.6]]),
+ R('동쪽 계단','stair',49,18,53,27,[],'s'),
+ R('화장실(여)','wc',53,19,58,27,[['s',56,57.2]]),
+ R('화장실(남)','wc',58,19,63,27,[['s',61,62.2]]),
+ R('북쪽 계단','stair',38,0,45,5,[],'s'),
+ R('화장실(여)','wc',28,0,33,5,[['s',30,31.2]]),
+ R('화장실(남)','wc',33,0,38,3.5,[['s',35,36.2]]),
+ R('음수대','alcove',33,3.5,38,5,[],'s'),
+ R('도서관','lib',2,5,18,14,[['e',5.6,7.2]]),
+ R('컴퓨터실','lab',18,7.5,32,14,[['n',19,20.4],['n',29,30.4]]),
+ R('AI융합교실','lab',32,7.5,38,14,[['n',33,34.4]]),
+ R('동아리실','office',45,7,53,13,[['w',8,9.4]]),
+ R('음악실','music',53,5,67,13,[['w',5.4,6.6]])];
+const CORR=[[0,27,82,30],[38,5,45,27],[18,5,38,7.5],[45,5,53,7],[-4,27,0,30]];
+const STARTS=[
+ {n:'1학년 교무실',x:41.5,z:36,f:2},
+ {n:'1층 행정실 (위치 가정)',x:10.5,z:5.6,f:1},
+ {n:'서쪽 계단 (2층 도착)',x:2,z:24,f:2},
+ {n:'동쪽 계단 (2층 도착)',x:51,z:24,f:2},
+ {n:'북쪽 계단 (2층 도착)',x:41.5,z:2.5,f:2},
+ {n:'컴퓨터실',x:25,z:11,f:2}];
+const START={...STARTS[0]},STAIR=8;
+// 가림: 북쪽 동(도서관·컴퓨터실·AI융합교실·동아리실·음악실과 그 위)만 남기고, 가운데부터 남쪽을 흐리게 가린다
+const MZ=14,MZ2=18;
+const underMask=z=>z>MZ+2.5;
+ROOMS.forEach(r=>r.masked=underMask((r.z0+r.z1)/2));
+const EXITS=ROOMS.filter(r=>r.t==='stair').map(r=>({n:r.n,x:(r.x0+r.x1)/2,z:(r.z0+r.z1)/2}));
+
+/* ---------- 영역 격자 (0.5m): 벽과 길찾기를 같은 격자에서 만든다 ---------- */
+const REG=new Uint8Array(N),HD=new Uint8Array((NZ+1)*NX),VD=new Uint8Array(NZ*(NX+1));
+const ci=(x,z)=>{const i=Math.floor((x-X0)/CS),j=Math.floor((z-Z0)/CS);return i<0||j<0||i>=NX||j>=NZ?-1:j*NX+i};
+const cxOf=k=>X0+(k%NX+.5)*CS,czOf=k=>Z0+(((k/NX)|0)+.5)*CS;
+function fill(x0,z0,x1,z1,id){for(let j=0;j<NZ;j++){const z=Z0+(j+.5)*CS;if(z<z0||z>z1)continue;for(let i=0;i<NX;i++){const x=X0+(i+.5)*CS;if(x>x0&&x<x1)REG[j*NX+i]=id}}}
+CORR.forEach(c=>fill(...c,1));
+ROOMS.forEach((r,k)=>{r.id=k+2;fill(r.x0,r.z0,r.x1,r.z1,r.id)});
+function doorLine(ax,c,a,b){if(ax==='h'){const j=Math.round((c-Z0)/CS);for(let i=0;i<NX;i++){const x=X0+(i+.5)*CS;if(x>a&&x<b)HD[j*NX+i]=1}}else{const i=Math.round((c-X0)/CS);for(let j=0;j<NZ;j++){const z=Z0+(j+.5)*CS;if(z>a&&z<b)VD[j*(NX+1)+i]=1}}}
+const sideLine=(r,s)=>s==='n'?['h',r.z0]:s==='s'?['h',r.z1]:s==='w'?['v',r.x0]:['v',r.x1];
+ROOMS.forEach(r=>{r.d.forEach(([s,a,b])=>{const[ax,c]=sideLine(r,s);doorLine(ax,c,a,b)});if(r.open){const[ax,c]=sideLine(r,r.open);ax==='h'?doorLine(ax,c,r.x0,r.x1):doorLine(ax,c,r.z0,r.z1)}});
+function pass(a,b){const ra=REG[a],rb=REG[b];if(!ra||!rb)return false;if(ra===rb)return true;const ia=a%NX,ja=(a/NX)|0,ib=b%NX,jb=(b/NX)|0;return ja===jb?!!VD[ja*(NX+1)+Math.max(ia,ib)]:!!HD[Math.max(ja,jb)*NX+ia]}
+doorLine('v',-4,27,30); // 서쪽 끝: 체육관으로 이어지는 통로 (체육관 건물은 그리지 않음)
+const RG=(i,j)=>i<0||j<0||i>=NX||j>=NZ?0:REG[j*NX+i];
+const WALLS=[];
+for(let j=0;j<=NZ;j++){let run=-1;for(let i=0;i<=NX;i++){const w=i<NX&&RG(i,j-1)!==RG(i,j)&&!HD[j*NX+i];if(w&&run<0)run=i;if(!w&&run>=0){WALLS.push([X0+run*CS,Z0+j*CS,X0+i*CS,Z0+j*CS]);run=-1}}}
+for(let i=0;i<=NX;i++){let run=-1;for(let j=0;j<=NZ;j++){const w=j<NZ&&RG(i-1,j)!==RG(i,j)&&!VD[j*(NX+1)+i];if(w&&run<0)run=j;if(!w&&run>=0){WALLS.push([X0+i*CS,Z0+run*CS,X0+i*CS,Z0+j*CS]);run=-1}}}
+const roomAt=(x,z)=>{const k=ci(x,z),r=k<0?0:REG[k];return r===1?'복도':r?ROOMS[r-2].n:'건물 밖'};
+
+/* ---------- 설비 (위치는 임시) ---------- */
+const PAT=[0,0,0,0,0,0,0,1,4,2,1,1,3,2,1,2,6,3,1,0,0,0,0,0];
+const HLAB={8:'등교 시간',12:'점심 시간',13:'점심 시간',16:'청소 시간',17:'청소 시간'};
+const NOW=Date.now(),MIN=60000;
+const D=(id,t,loc,x,z,nx,nz,o)=>({id,t,loc,x,z,nx,nz,st:'normal',ago:300,f:.5,avg:4,max:12,mk:'2022-03',chk:'2026-11-02',...o});
+const DEV=[
+ D('FE-01','FE','1-7반 앞 사물함 사이',70,30,0,-1,{proto:true,ago:38,f:.4,avg:3,max:9,mk:'2023-04',ph:'7024·7018·7019'}),
+ D('FE-02','FE','1학년 교무실 앞 게시판 아래',44.5,30,0,-1,{ago:88,f:1.4,avg:14,max:47,mk:'2021-09',ph:'7015'}),
+ D('FE-03','FE','1-3반 교실 안 뒷문 옆',19,31.3,1,0,{f:.3,mk:'2022-03',ph:'7021·7020',guess:'몇 반인지'}),
+ D('FE-04','FE','중앙 휴게 공간',38,15.5,1,0,{f:.6,avg:5,max:14,ph:'7014',guess:'위치'}),
+ D('FE-05','FE','북쪽 복도 벤치 옆',22,5,0,1,{f:.5,ph:'7012',guess:'위치'}),
+ D('FE-06','FE','AI융합교실 안',32,9,1,0,{f:.2,mk:'2023-04',ph:'7011·7010',guess:'어느 실인지'}),
+ D('FH-01','FH','서쪽 남자화장실 옆',14.6,27,0,1,{f:.35,mk:'2019-02',chk:'2026-10-28',ago:600,ph:'7023'}),
+ D('FH-02','FH','동쪽 계단·엘리베이터 앞',48.2,27,0,1,{f:.5,mk:'2019-02',chk:'2026-10-28',ph:'7016'}),
+ D('FH-03','FH','동쪽 남자화장실 옆',63.8,27,0,1,{ago:47,f:1,avg:9,max:26,mk:'2019-02',chk:'2026-10-28',ph:'7017'}),
+ D('FH-04','FH','북쪽 복도 컴퓨터실 앞',31,7.5,0,-1,{f:.3,mk:'2019-02',chk:'2026-10-28',ph:'7013',guess:'위치'})];
+const KIND={FE:'소화기함',FH:'옥내소화전'};
+function placeDev(d){
+ d.th=Math.atan2(d.nx,d.nz);d.tx=-d.nz;d.tz=d.nx;
+ d.ox=d.x+d.nx*WT/2;d.oz=d.z+d.nz*WT/2;
+ const at=k=>({x:d.ox+d.nx*k,z:d.oz+d.nz*k});
+ d.at=at;d.front=at(d.dp+.75);d.pin=at(d.dp);
+ const c=at(d.dp/2),ex=Math.abs(d.tx)*d.w/2+Math.abs(d.nx)*d.dp/2,ez=Math.abs(d.tz)*d.w/2+Math.abs(d.nz)*d.dp/2;
+ d.foot=[c.x-ex,c.z-ez,c.x+ex,c.z+ez];
+}
+function initDev(d){
+ d.since=NOW-d.ago*MIN;d.hours=PAT.map(v=>Math.round(v*d.f));d.week=d.hours.reduce((a,b)=>a+b,0);
+ const fe=d.t==='FE';d.w=fe?.5:.75;d.h=fe?.78:1.5;d.dp=fe?.1:.14;d.y0=fe?.06:.22;d.obs=[];
+ placeDev(d);
+}
+DEV.forEach(initDev);
+const byId=id=>DEV.find(d=>d.id===id);
+const LOG=[
+ {t:NOW-130*MIN,id:'FE-04',lv:'normal',m:'정기 점검 기록 · 압력 정상'},
+ {t:NOW-95*MIN,id:'FE-02',lv:'danger',m:'적치 감지 · 감지 거리 안'},
+ {t:NOW-91*MIN,id:'FE-02',lv:'danger',m:'3단계 · 관리자에게 알림 보냄'},
+ {t:NOW-88*MIN,id:'FE-02',lv:'normal',m:'관리자 조치 완료 · 정상으로 돌아옴'},
+ {t:NOW-52*MIN,id:'FH-03',lv:'caution',m:'물체 감지 · 감지 거리 밖'},
+ {t:NOW-47*MIN,id:'FH-03',lv:'normal',m:'치움 확인 · 정상으로 돌아옴'},
+ {t:NOW-41*MIN,id:'FE-01',lv:'danger',m:'적치 감지 · 감지 거리 안'},
+ {t:NOW-38*MIN,id:'FE-01',lv:'normal',m:'치움 확인 · 2초 동안 비어 있음'}];
+const MSG={normal:'치움 확인 · 정상으로 돌아옴',caution:'물체 감지 · 감지 거리 밖',danger:'적치 감지 · 감지 거리 안'};
+const STG={1:'1단계 · 노란 표시',2:'2단계 · 빨간 점멸과 부저',3:'3단계 · 관리자에게 알림 보냄'};
+const LAB={normal:'정상',caution:'주의',danger:'위험',off:'꺼짐'};
+const HEAD={normal:'문 앞 비어 있음',caution:'근처에 물체 있음',danger:'문 열림 불가',off:'감지 꺼짐'};
+const stageOf=ms=>ms<MIN?1:ms<5*MIN?2:3;
+DEV.forEach(d=>d.stage=d.st==='danger'?stageOf(NOW-d.since):0);
+const hm=t=>{const x=new Date(t);return String(x.getHours()).padStart(2,'0')+':'+String(x.getMinutes()).padStart(2,'0')};
+const dur=ms=>{const s=Math.max(0,Math.floor(ms/1000)),m=Math.floor(s/60),h=Math.floor(m/60);return h?`${h}시간 ${m%60}분째`:m?`${m}분 ${s%60}초째`:`${s}초째`};
+
+/* ---------- 시제품 (SafeDoor_BLE_FastDemo_Reset.ino 규칙) ----------
+   T,state,person,object,d1,d2,d3,d4,seconds,threshold,enabled,muted
+   E,event,seconds        명령: GET / MUTE,1|0 / ENABLE,1|0 / DIST,5..150 */
+const P={id:'FE-01',src:'none',st:'CLEAR',resume:'CLEAR',person:false,object:false,d:[999,999,999,999],sec:0,th:50,en:true,mute:false,last:0,name:'',msg:''};
+const FWMAP={CLEAR:'normal',PERSON:'normal',COUNTING:'caution',YELLOW:'caution',RED:'danger',ADMIN:'danger',OFF:'off'};
+const FWHEAD={CLEAR:'문 앞 비어 있음',PERSON:'사람이 지나가는 중',COUNTING:'물체 감지 · 시간 재는 중',YELLOW:'1단계 · 노란 표시',RED:'2단계 · 빨간 점멸과 부저',ADMIN:'3단계 · 관리자 알림',RECHECK:'치움 확인 중 (2초)',OFF:'감지 꺼짐'};
+const EVT={CLEAR:'정상 · 문 앞 비어 있음',PERSON:'사람 통과 감지',COUNTING:'물체 감지 · 시간 재기 시작',YELLOW:'1단계 · 노란 표시',RED:'2단계 · 빨간 점멸과 부저',ADMIN:'3단계 · 관리자에게 알림 보냄',RECHECK:'물체 사라짐 · 치움 확인 중',OFF:'감지 꺼짐',MUTED:'부저 음소거',UNMUTED:'부저 다시 켬',DIST_CHANGED:'감지 거리 변경',REMOVED:'치움 확인 완료',ADMIN_REPEAT:'관리자 알림 다시 보냄'};
+const FW={YELLOW:1000,RED:3000,ADMIN:6000,RECHECK:2000,REPEAT:10000,PIR_HOLD:2000,DEB:3,SEND:1000};
+const lvOf=e=>e==='RED'||e==='ADMIN'||e==='ADMIN_REPEAT'?'danger':e==='COUNTING'||e==='YELLOW'||e==='RECHECK'?'caution':e==='OFF'?'off':'normal';
+function onLine(raw){
+ const l=String(raw).trim();if(!l)return;const p=l.split(',');
+ if(p[0]==='T'&&p.length>=12&&FWHEAD[p[1]]){
+  if(p[1]==='RECHECK'&&P.st!=='RECHECK')P.resume=P.st;
+  P.st=p[1];P.person=p[2]==='1';P.object=p[3]==='1';P.d=p.slice(4,8).map(Number);P.sec=+p[8]||0;P.th=+p[9]||P.th;P.en=p[10]==='1';P.mute=p[11]==='1';P.last=Date.now();protoApply();
+ }else if(p[0]==='E'&&p[1]){
+  const e=p[1],s=+p[2]||0;
+  if(FWHEAD[e]){if(e==='RECHECK'&&P.st!=='RECHECK')P.resume=P.st;P.st=e}
+  if(e==='MUTED')P.mute=true;if(e==='UNMUTED')P.mute=false;
+  P.last=Date.now();
+  pushLog({t:Date.now(),id:P.id,lv:lvOf(e),m:(EVT[e]||e)+(s&&e!=='CLEAR'&&e!=='PERSON'?` · ${s}초`:'')});
+  protoApply();
+ }
+}
+let sim=null;
+function makeSim(){
+ const S={state:'CLEAR',dist:[999,999,999,999],detect:P.th||50,present:false,seenPir:false,enabled:true,muted:false,hits:0,misses:0,objectStart:0,recheckStart:0,lastPir:0,lastAdmin:0,lastSend:0,obj:false,objCm:32,pirUntil:0};
+ const ms=()=>performance.now(),sec=now=>S.objectStart?Math.floor((now-S.objectStart)/1000):0;
+ const ev=(e,now)=>onLine(`E,${e},${sec(now)}`);
+ const change=(n,now)=>{if(n===S.state)return;S.state=n;ev(n,now);if(n==='ADMIN')S.lastAdmin=now};
+ const sev=el=>el>=FW.ADMIN?'ADMIN':el>=FW.RED?'RED':el>=FW.YELLOW?'YELLOW':'COUNTING';
+ const tele=(now,person)=>onLine(`T,${S.state},${person?1:0},${S.present?1:0},${S.dist.join(',')},${S.objectStart&&!['CLEAR','OFF','PERSON'].includes(S.state)?sec(now):0},${S.detect},${S.enabled?1:0},${S.muted?1:0}`);
+ const personNow=now=>S.seenPir&&now-S.lastPir<FW.PIR_HOLD;
+ S.cmd=line=>{const now=ms();
+  if(line==='GET')tele(now,personNow(now));
+  else if(line==='MUTE,1'){S.muted=true;ev('MUTED',now)}
+  else if(line==='MUTE,0'){S.muted=false;ev('UNMUTED',now)}
+  else if(line==='ENABLE,0'){S.enabled=false;S.present=false;S.hits=S.misses=0;S.objectStart=0;change('OFF',now);tele(now,false)}
+  else if(line==='ENABLE,1'){S.enabled=true;S.present=false;S.hits=S.misses=0;S.objectStart=0;change('CLEAR',now);tele(now,false)}
+  else if(line.startsWith('DIST,')){const v=+line.slice(5);if(Number.isInteger(v)&&v>=5&&v<=150){S.detect=v;ev('DIST_CHANGED',now);tele(now,personNow(now))}}
+ };
+ S.step=()=>{
+  let now=ms();
+  if(!S.enabled){if(now-S.lastSend>=FW.SEND){tele(now,false);S.lastSend=now}return}
+  if(now<S.pirUntil){S.lastPir=now;S.seenPir=true}
+  S.dist=S.obj?[S.objCm,S.objCm+4,S.objCm+17,999]:[999,999,999,999];
+  const raw=S.dist.some(v=>v>2&&v<=S.detect);
+  if(raw){S.misses=0;if(S.hits<FW.DEB)S.hits++;if(S.hits>=FW.DEB)S.present=true}
+  else{S.hits=0;if(S.misses<FW.DEB)S.misses++;if(S.misses>=FW.DEB)S.present=false}
+  now=ms();if(now<S.pirUntil){S.lastPir=now;S.seenPir=true}
+  const person=personNow(now),el=now-S.objectStart;
+  switch(S.state){
+   case'CLEAR':if(S.present){if(person)change('PERSON',now);else{S.objectStart=now;change('COUNTING',now)}}else if(person)change('PERSON',now);break;
+   case'PERSON':if(!person&&S.present){S.objectStart=now;change('COUNTING',now)}else if(!person&&!S.present)change('CLEAR',now);break;
+   case'COUNTING':case'YELLOW':case'RED':case'ADMIN':
+    if(!S.present){S.recheckStart=now;change('RECHECK',now)}
+    else{change(sev(el),now);if(S.state==='ADMIN'&&now-S.lastAdmin>=FW.REPEAT){ev('ADMIN_REPEAT',now);S.lastAdmin=now}}break;
+   case'RECHECK':if(S.present)change(sev(el),now);else if(now-S.recheckStart>=FW.RECHECK){ev('REMOVED',now);S.objectStart=0;change(person?'PERSON':'CLEAR',now)}break;
+   case'OFF':change('CLEAR',now);break;
+  }
+  if(now-S.lastSend>=FW.SEND){tele(now,person);S.lastSend=now}
+ };
+ S.timer=setInterval(S.step,130);
+ return S;
+}
+function startSim(){bleStop();if(sim)clearInterval(sim.timer);P.src='sim';P.msg='';P.st='CLEAR';P.resume='CLEAR';sim=makeSim();onLine('E,CLEAR,0');sim.cmd('GET')}
+function stopSim(){if(sim){clearInterval(sim.timer);sim=null}}
+let ble=null;
+const SVCS=[0xffe0,0xfff0,0xffe5,0xfee0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','0000dfb0-0000-1000-8000-00805f9b34fb','49535343-fe7d-4ae5-8fa9-9fafd205e455'];
+const BLOCKED='이 화면에서는 블루투스가 막혀 있습니다. 같이 보낸 SafeDoor_local.html을 PC나 안드로이드 크롬에서 열고 연결하세요.';
+function bleStop(){if(ble){try{ble.dev.gatt.disconnect()}catch(e){}ble=null}}
+async function bleConnect(){
+ const say=t=>{P.msg=t;updateProto()};
+ if(!navigator.bluetooth){say(BLOCKED);return}
+ try{
+  const dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SVCS});
+  say(`${dev.name||'기기'}에 연결하는 중입니다.`);
+  const srv=await dev.gatt.connect();let rx=null,tx=null;
+  for(const s of await srv.getPrimaryServices()){for(const c of await s.getCharacteristics()){const q=c.properties;if(!rx&&(q.notify||q.indicate))rx=c;if(!tx&&(q.writeWithoutResponse||q.write))tx=c}if(rx&&tx)break}
+  if(!rx||!tx){dev.gatt.disconnect();say('시리얼 통로를 찾지 못했습니다. BLE 모듈의 서비스 UUID를 확인해야 합니다.');return}
+  stopSim();ble={dev,rx,tx,buf:'',q:Promise.resolve()};P.src='ble';P.name=dev.name||'SafeDoor';P.msg='';
+  const dec=new TextDecoder();
+  rx.addEventListener('characteristicvaluechanged',e=>{ble.buf+=dec.decode(e.target.value,{stream:true});let i;while((i=ble.buf.search(/\r?\n/))>=0){const ln=ble.buf.slice(0,i);ble.buf=ble.buf.slice(i+1).replace(/^\n/,'');onLine(ln)}});
+  await rx.startNotifications();
+  dev.addEventListener('gattserverdisconnected',()=>{if(!ble||ble.dev!==dev)return;ble=null;P.src='none';P.msg='시제품 연결이 끊겼습니다.';pushLog({t:Date.now(),id:P.id,lv:'off',m:'시제품 블루투스 끊김'});protoApply()});
+  pushLog({t:Date.now(),id:P.id,lv:'normal',m:`시제품 블루투스 연결 · ${P.name}`});
+  send('GET');protoApply();
+ }catch(e){say(e.name==='NotFoundError'?'기기 선택을 취소했습니다.':(e.name==='SecurityError'||e.name==='NotAllowedError')?BLOCKED:'연결하지 못했습니다. '+e.message)}
+}
+function send(cmd){
+ if(P.src==='sim'&&sim)sim.cmd(cmd);
+ else if(P.src==='ble'&&ble){const b=new TextEncoder().encode(cmd+'\n'),c=ble.tx;ble.q=ble.q.then(()=>c.properties.writeWithoutResponse?c.writeValueWithoutResponse(b):c.writeValue(b)).catch(()=>{P.msg='명령을 보내지 못했습니다.';updateProto()})}
+}
+const protoLive=()=>P.src!=='none';
+function protoStatus(){if(!protoLive())return'off';const b=P.st==='RECHECK'?P.resume:P.st;return FWMAP[b]||'caution'}
+function sens(d){if(d.proto)return P.d;return d.st==='danger'?[41,38,47,200]:d.st==='caution'?[200,96,104,200]:[200,200,200,200]}
+
+/* ---------- 상태 ---------- */
+let sel=null,mode='overview',view='3d',routeOn=true,fire=null,lastRoute=null;
+const layers={heat:false,lab:true,xray:false,mask:true};
+let showT='all',edit=false,editSel=null,copyMsg='';
+const shown=d=>showT==='all'||showT===d.t;
+
+/* ---------- 길찾기 ---------- */
+const SB=new Uint8Array(N);
+const markRect=(a,x0,z0,x1,z1)=>{for(let j=0;j<NZ;j++){const z=Z0+(j+.5)*CS;if(z<z0||z>z1)continue;for(let i=0;i<NX;i++){const x=X0+(i+.5)*CS;if(x>=x0&&x<=x1)a[j*NX+i]=1}}};
+let LOCK=[];
+function rebuildStatic(){
+ SB.fill(0);
+ DEV.forEach(d=>markRect(SB,d.foot[0]-.1,d.foot[1]-.1,d.foot[2]+.1,d.foot[3]+.1));
+ LOCK=[];
+ ROOMS.filter(r=>r.t==='class'||r.n==='1학년 교무실').forEach(r=>{
+  const k=r.t==='class'?'locker':'desk';
+  const cuts=[...r.d.filter(q=>q[0]==='n').map(([,a,b])=>[a-.15,b+.15]),...DEV.filter(d=>d.nz===-1&&Math.abs(d.z-30)<.05&&d.x>r.x0&&d.x<r.x1).map(d=>[d.x-d.w/2-.08,d.x+d.w/2+.08])].sort((p,q)=>p[0]-q[0]);
+  let x=r.x0+.15;cuts.forEach(([a,b])=>{if(a-x>.5)LOCK.push({x0:x,x1:a,k});x=Math.max(x,b)});if(r.x1-.15-x>.5)LOCK.push({x0:x,x1:r.x1-.15,k});
+ });
+ LOCK.forEach(L=>markRect(SB,L.x0,29.5,L.x1,30));
+}
+rebuildStatic();
+function grid(){const g=SB.slice();DEV.forEach(d=>d.obs.forEach(o=>markRect(g,o[0]-.15,o[1]-.15,o[2]+.15,o[3]+.15)));return g}
+function hpush(H,n){H.push(n);let i=H.length-1;while(i>0){const p=(i-1)>>1;if(H[p][0]<=H[i][0])break;[H[p],H[i]]=[H[i],H[p]];i=p}}
+function hpop(H){const top=H[0],last=H.pop();if(H.length){H[0]=last;let i=0;for(;;){const l=2*i+1,r=l+1;let m=i;if(l<H.length&&H[l][0]<H[m][0])m=l;if(r<H.length&&H[r][0]<H[m][0])m=r;if(m===i)break;[H[m],H[i]]=[H[i],H[m]];i=m}}return top}
+function nearFree(p,b){const k0=ci(p.x,p.z);if(k0<0)return-1;const want=REG[k0],i0=k0%NX,j0=(k0/NX)|0;
+ for(const strict of[true,false])for(let r=0;r<12;r++){let best=-1,bd=1e9;for(let j=j0-r;j<=j0+r;j++)for(let i=i0-r;i<=i0+r;i++){if(i<0||j<0||i>=NX||j>=NZ)continue;const k=j*NX+i;if(!REG[k]||b[k]||(strict&&want&&REG[k]!==want))continue;const dd=(i-i0)**2+(j-j0)**2;if(dd<bd){bd=dd;best=k}}if(best>=0)return best}return-1}
+function los(p,q,b,c){const L=Math.hypot(q.x-p.x,q.z-p.z),n=Math.max(1,Math.ceil(L/.1));let pr=ci(p.x,p.z);const cap=c?Math.max(c[pr],c[ci(q.x,q.z)]):0;
+ for(let k=1;k<=n;k++){const cc=ci(p.x+(q.x-p.x)*k/n,p.z+(q.z-p.z)*k/n);if(cc===pr)continue;if(cc<0||b[cc]||(c&&c[cc]>cap))return false;
+  const pi=pr%NX,pj=(pr/NX)|0,qi=cc%NX,qj=(cc/NX)|0;
+  if(pi!==qi&&pj!==qj){const m1=pj*NX+qi,m2=qj*NX+pi;if(b[m1]||b[m2]||!pass(pr,m1)||!pass(m1,cc)||!pass(pr,m2)||!pass(m2,cc))return false}
+  else if(!pass(pr,cc))return false;pr=cc}return true}
+function astar(a,b,blk,cost){
+ const s=nearFree(a,blk),t=nearFree(b,blk);if(s<0||t<0)return null;
+ const g=new Float32Array(N).fill(1e9),from=new Int32Array(N).fill(-1),cl=new Uint8Array(N),tx=t%NX,tz=(t/NX)|0;
+ const h=i=>{const dx=Math.abs(i%NX-tx),dz=Math.abs(((i/NX)|0)-tz);return(Math.max(dx,dz)+.4142*Math.min(dx,dz))*CS};
+ const H=[];g[s]=0;hpush(H,[h(s),s]);
+ while(H.length){const i=hpop(H)[1];if(cl[i])continue;cl[i]=1;if(i===t)break;const x=i%NX,z=(i/NX)|0;
+  for(let dz=-1;dz<=1;dz++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dz)continue;const nx=x+dx,nz=z+dz;if(nx<0||nz<0||nx>=NX||nz>=NZ)continue;const j=nz*NX+nx;if(blk[j]||cl[j])continue;
+   if(dx&&dz){const m1=z*NX+nx,m2=nz*NX+x;if(blk[m1]||blk[m2]||!pass(i,m1)||!pass(m1,j)||!pass(i,m2)||!pass(m2,j))continue}else if(!pass(i,j))continue;
+   const ng=g[i]+(dx&&dz?1.4142:1)*CS*(1+(cost?cost[j]:0));if(ng<g[j]){g[j]=ng;from[j]=i;hpush(H,[ng+h(j),j])}}}
+ if(s!==t&&from[t]<0)return null;
+ const cells=[];for(let i=t;i!==-1;i=from[i]){cells.push(i);if(i===s)break}cells.reverse();
+ const P2=cells.map(k=>({x:cxOf(k),z:czOf(k)}));
+ if(ci(a.x,a.z)===s)P2[0]={x:a.x,z:a.z};
+ if(ci(b.x,b.z)===t&&P2.length>1)P2[P2.length-1]={x:b.x,z:b.z};
+ const out=[P2[0]];let i=0;while(i<P2.length-1){let j=P2.length-1;while(j>i+1&&!los(P2[i],P2[j],blk,cost))j--;out.push(P2[j]);i=j}
+ let len=0;for(let k=1;k<out.length;k++)len+=Math.hypot(out[k].x-out[k-1].x,out[k].z-out[k-1].z);
+ return{pts:out,len};
+}
+
+/* ---------- 3D ---------- */
+const viewEl=$('#view'),canvas=$('#c'),ov=$('#ov');
+let gl=typeof THREE!=='undefined'&&THREE.OrbitControls;
+let maskG=null,gymG=null,fireRings=[];
+let world,shells={},floorView='all',s1G=null,startMesh=null,simG=null,SIM=null,simOn=false;
+const SP=7;
+let renderer,scene,cam,ctl,dl,M={},devMesh=[],pathG={},fireG=null,heatTex,holoGrid,holoGround,glassM=[];
+const probe=document.createElement('i');probe.style.display='none';document.body.appendChild(probe);
+const css=v=>{probe.style.color=`var(${v})`;return getComputedStyle(probe).color};
+const col=v=>new THREE.Color(css(v));
+const VW=()=>viewEl.clientWidth,VH=()=>viewEl.clientHeight;
+if(gl){try{renderer=new THREE.WebGLRenderer({canvas,antialias:true})}catch(e){try{renderer=new THREE.WebGLRenderer({canvas})}catch(e2){gl=false}}}
+if(!gl)$('#nogl').hidden=false;
+function edges(mesh,mat){mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry),mat||M.line));return mesh}
+function box(w,h,d,mat,x,y,z,sh=true){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);m.castShadow=sh;m.receiveShadow=true;scene.add(m);return m}
+function flat(w,d,mat,x,z,y=0){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),mat);m.rotation.x=-Math.PI/2;m.position.set(x,y,z);m.receiveShadow=true;scene.add(m);return m}
+// 상자 여러 개를 인스턴스 하나와 선 하나로
+function boxes(L,mat,lines,parent=scene){
+ const im=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mat,L.length),o=new THREE.Object3D(),E=[];
+ L.forEach(([x,y,z,sx,sy,sz],k)=>{o.position.set(x,y,z);o.scale.set(sx,sy,sz);o.updateMatrix();im.setMatrixAt(k,o.matrix);
+  if(lines){const a=[x-sx/2,x+sx/2],b=[y-sy/2,y+sy/2],c=[z-sz/2,z+sz/2];
+   for(const yy of b)for(const zz of c)E.push(a[0],yy,zz,a[1],yy,zz);
+   for(const xx of a)for(const zz of c)E.push(xx,b[0],zz,xx,b[1],zz);
+   for(const xx of a)for(const yy of b)E.push(xx,yy,c[0],xx,yy,c[1])}});
+ im.castShadow=im.receiveShadow=true;parent.add(im);
+ if(lines){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(E,3));parent.add(new THREE.LineSegments(g,M.line))}
+ return im;
+}
+function furnish(r,F,B){
+ const w=r.x1-r.x0,d=r.z1-r.z0,cx=(r.x0+r.x1)/2,cz=(r.z0+r.z1)/2,T=(x,z,sx,sz,h,y0=0)=>F.push([x,y0+h/2,z,sx,h,sz]);
+ if(r.t==='class'){for(let i=0;i<6;i++)for(let j=0;j<5;j++)T(r.x0+1.5+i*1.2,r.z0+2.4+j*1.15,.62,.45,.72);T(cx,r.z1-1.1,1.4,.65,.78);B.push([cx,1.45,r.z1-.14,4.6,1.1,.06])}
+ else if(r.t==='office'){for(let x=r.x0+1.4;x<r.x1-1;x+=2.2)for(let z=r.z0+1.4;z<r.z1-1.2;z+=2.8){T(x,z,1.5,.7,.74);if(z+.75<r.z1-.8)T(x,z+.75,1.5,.7,.74)}}
+ else if(r.t==='lab'){for(let z=r.z0+1.8;z<r.z1-.8;z+=1.5)for(let x=r.x0+1.4;x<r.x1-1.2;x+=2)T(x+.8,z,1.7,.6,.74)}
+ else if(r.t==='lib'){for(let x=r.x0+1;x<r.x1-.5;x+=2.2)T(x,r.z0+.5,1.8,.4,1.8);for(let z=r.z0+3;z<r.z1-1;z+=2.4)for(let x=r.x0+2;x<r.x1-2;x+=3.4)T(x,z,2.2,1,.74)}
+ else if(r.t==='music'){for(let z=r.z0+2;z<r.z1-1;z+=1.4)for(let x=r.x0+2;x<r.x1-1;x+=1.3)T(x,z,.5,.5,.45);T(r.x1-1.5,cz,1.6,1,1)}
+ else if(r.t==='gym'){T(r.x0+1.6,cz,2.4,d-6,.9);T(cx+1,cz,w-6,d-5,.02)}
+ else if(r.t==='wc'){const n=Math.max(1,Math.floor((w-.6)/1.1));for(let k=0;k<n;k++)T(r.x0+.85+k*1.1,r.z0+.75,.95,1.3,1.4)}
+ else if(r.t==='store'){T(cx,r.z0+.45,w-.8,.5,1.6)}
+ else if(r.t==='alcove'){T(cx,r.z0+.35,Math.min(2.4,w-.8),.4,.9)}
+ else if(r.t==='elv'){T(cx,cz,w-.8,d-.8,.08)}
+}
+function build(){
+ renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+ renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+ world=new THREE.Scene();scene=new THREE.Group();world.add(scene);
+ cam=new THREE.PerspectiveCamera(40,1,.5,900);
+ ctl=new THREE.OrbitControls(cam,canvas);
+ ctl.enableDamping=true;ctl.dampingFactor=.09;ctl.maxPolarAngle=1.35;ctl.minDistance=10;ctl.maxDistance=220;ctl.target.set(C.x,0,C.z);
+ world.add(new THREE.HemisphereLight(0xffffff,0x9a9a94,.78));
+ dl=new THREE.DirectionalLight(0xffffff,.55);dl.position.set(C.x+30,60,C.z+38);dl.target.position.set(C.x,SP,C.z);world.add(dl.target);
+ dl.castShadow=true;dl.shadow.mapSize.set(2048,2048);Object.assign(dl.shadow.camera,{left:-64,right:64,top:40,bottom:-40,near:1,far:220});dl.shadow.bias=-.0008;world.add(dl);
+ ['room','corr','wc','stair','wall','desk','board','dev','box','ink','base','face','locker','steel','person'].forEach(k=>M[k]=new THREE.MeshLambertMaterial());
+ glassM=[M.wall,M.desk,M.board,M.base,M.locker];
+ M.line=new THREE.LineBasicMaterial({transparent:true});
+ M.faceFE=new THREE.MeshLambertMaterial({map:faceTex('FE')});M.faceFH=new THREE.MeshLambertMaterial({map:faceTex('FH')});M.lamp=new THREE.MeshBasicMaterial();
+ // 바닥판과 바닥
+ const slabs=[];
+ CORR.forEach(([x0,z0,x1,z1])=>{slabs.push([(x0+x1)/2,-.15,(z0+z1)/2,x1-x0,.3,z1-z0]);flat(x1-x0,z1-z0,M.corr,(x0+x1)/2,(z0+z1)/2,.005)});
+ ROOMS.forEach(r=>{slabs.push([(r.x0+r.x1)/2,-.15,(r.z0+r.z1)/2,r.x1-r.x0,.3,r.z1-r.z0]);flat(r.x1-r.x0,r.z1-r.z0,r.t==='wc'?M.wc:r.t==='stair'?M.stair:M.room,(r.x0+r.x1)/2,(r.z0+r.z1)/2,.005)});
+ boxes(slabs,M.base,false);
+ // 홀로그램 격자
+ const gc=document.createElement('canvas');gc.width=gc.height=64;const gx=gc.getContext('2d');gx.strokeStyle='#fff';gx.globalAlpha=.9;gx.lineWidth=2;gx.strokeRect(0,0,64,64);
+ const gt=new THREE.CanvasTexture(gc);gt.wrapS=gt.wrapT=THREE.RepeatWrapping;gt.repeat.set(BW/CS,(BD+2)/CS);gt.anisotropy=4;
+ M.holoFloor=new THREE.MeshBasicMaterial({map:gt,transparent:true,opacity:.28,depthWrite:false});
+ holoGrid=flat(BW,BD+2,M.holoFloor,C.x,C.z+.5,.012);holoGrid.receiveShadow=false;holoGrid.visible=false;
+ holoGround=new THREE.GridHelper(300,150,0xffffff,0xffffff);holoGround.position.set(C.x,-.32,C.z);holoGround.material.transparent=true;holoGround.material.opacity=.6;holoGround.visible=false;world.add(holoGround);
+ // 벽 (격자에서 뽑은 선분)
+ boxes(WALLS.map(([x1,z1,x2,z2])=>z1===z2?[(x1+x2)/2,WH/2,z1,x2-x1+WT,WH,WT]:[x1,WH/2,(z1+z2)/2,WT,WH,z2-z1+WT]),M.wall,true);
+ // 계단
+ const st=[];
+ ROOMS.filter(r=>r.t==='stair').forEach(r=>{const dep=r.z1-r.z0,n=Math.min(12,Math.floor((dep-1.6)/.32)),fw=(r.x1-r.x0-1.2)/2,z0=r.z1-.6;
+  for(let f=0;f<2;f++){const cx=r.x0+.5+fw/2+f*(fw+.2);for(let k=0;k<n;k++){const h=(f?n-k:k+1)*.11;st.push([cx,h/2,z0-(k*.32+.16),fw,h,.32])}}
+  st.push([(r.x0+r.x1)/2,n*.11/2,z0-n*.32-.5,r.x1-r.x0-.8,n*.11,1])});
+ boxes(st,M.wall,true);
+ const F=[],B=[];ROOMS.forEach(r=>furnish(r,F,B));
+ boxes(F,M.desk,false);buildLockers();if(B.length)boxes(B,M.board,false);
+ startMesh=new THREE.Mesh(new THREE.CylinderGeometry(.45,.45,.06,32),M.ink);startMesh.position.set(START.x,.04,START.z);scene.add(startMesh);
+ const hc=document.createElement('canvas');hc.width=hc.height=128;const hx=hc.getContext('2d'),gr=hx.createRadialGradient(64,64,0,64,64,64);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(1,'rgba(255,255,255,0)');hx.fillStyle=gr;hx.fillRect(0,0,128,128);heatTex=new THREE.CanvasTexture(hc);
+ // 체육관 연결 표시 (바닥 화살표)
+ gymG=new THREE.Group();M.gym=new THREE.MeshBasicMaterial();
+ const tri=new THREE.Shape();tri.moveTo(0,-.6);tri.lineTo(-.8,0);tri.lineTo(0,.6);tri.lineTo(0,.25);tri.lineTo(-.35,0);tri.lineTo(0,-.25);tri.lineTo(0,-.6);
+ for(let k=0;k<3;k++){const m=new THREE.Mesh(new THREE.ShapeGeometry(tri),M.gym);m.rotation.x=-Math.PI/2;m.position.set(-.6-k*1.1,.02,28.5);gymG.add(m)}
+ scene.add(gymG);
+ // 가운데 가림 (흐릿하게)
+ const mc=document.createElement('canvas');mc.width=mc.height=128;const mx=mc.getContext('2d');mx.filter='blur(12px)';mx.fillStyle='#fff';mx.fillRect(22,22,84,84);
+ const mt=new THREE.CanvasTexture(mc);M.maskTop=new THREE.MeshBasicMaterial({map:mt,transparent:true,depthWrite:false});M.maskBox=new THREE.MeshBasicMaterial({transparent:true,opacity:.93});
+ maskG=new THREE.Group();M.maskSl=[];
+ {const x0=-7,x1=85,H=WH+.5,n=6,dz=(MZ2-MZ)/n;
+  for(let i=0;i<n;i++){const m=new THREE.MeshBasicMaterial({transparent:true,opacity:.92*(i+1)/(n+1),depthWrite:false});M.maskSl.push(m);const b=new THREE.Mesh(new THREE.BoxGeometry(x1-x0,H,dz),m);b.position.set((x0+x1)/2,H/2,MZ+dz*(i+.5));b.renderOrder=3;maskG.add(b)}
+  const b=new THREE.Mesh(new THREE.BoxGeometry(x1-x0,H,41-MZ2),M.maskBox);b.position.set((x0+x1)/2,H/2,(MZ2+41)/2);b.renderOrder=3;maskG.add(b)}
+ scene.add(maskG);
+ // 설비
+ DEV.forEach(addDevMesh);
+ // 1·3·4층: 같은 틀로 아주 간단하게 (바닥과 벽만)
+ M.shSlab=new THREE.MeshLambertMaterial({transparent:true});M.shWall=new THREE.MeshLambertMaterial({transparent:true});M.shLine=new THREE.LineBasicMaterial({transparent:true});
+ [1,3,4].forEach(buildShell);
+ buildSim();
+ layoutFloors();
+ applyTheme();
+}
+function buildShell(k){
+ const g=new THREE.Group();world.add(g);shells[k]=g;
+ const sl=[];CORR.forEach(([x0,z0,x1,z1])=>sl.push([(x0+x1)/2,-.1,(z0+z1)/2,x1-x0,.2,z1-z0]));ROOMS.forEach(r=>sl.push([(r.x0+r.x1)/2,-.1,(r.z0+r.z1)/2,r.x1-r.x0,.2,r.z1-r.z0]));
+ const a=boxes(sl,M.shSlab,false,g);a.castShadow=a.receiveShadow=false;
+ const w=boxes(WALLS.map(([x1,z1,x2,z2])=>z1===z2?[(x1+x2)/2,WH/2,z1,x2-x1+WT,WH,WT]:[x1,WH/2,(z1+z2)/2,WT,WH,z2-z1+WT]),M.shWall,false,g);w.castShadow=w.receiveShadow=false;
+ const E=[];WALLS.forEach(([x1,z1,x2,z2])=>{E.push(x1,WH,z1,x2,WH,z2,x1,0,z1,x2,0,z2)});const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(E,3));g.add(new THREE.LineSegments(lg,M.shLine));
+}
+/* ---------- 시뮬 공간: 큰 정사각형 방 + 블루투스로 연결된 시제품 (FE-01) ---------- */
+const RS=7,BACK=-RS/2;
+function buildSim(){
+ simG=new THREE.Group();simG.position.set(C.x,0,C.z);simG.visible=false;world.add(simG);
+ const S={};SIM=S;const add=(m,x,y,z)=>{m.position.set(x,y,z);simG.add(m);return m};
+ // 바닥과 타일 선 (0.5m)
+ const fl=new THREE.Mesh(new THREE.BoxGeometry(RS,.2,RS),M.corr);fl.receiveShadow=true;add(fl,0,-.1,0);
+ M.tile=new THREE.LineBasicMaterial({transparent:true,opacity:.22});const E=[];for(let k=-RS/2;k<=RS/2+1e-6;k+=.5){E.push(k,.005,-RS/2,k,.005,RS/2,-RS/2,.005,k,RS/2,.005,k)}
+ const tg=new THREE.BufferGeometry();tg.setAttribute('position',new THREE.Float32BufferAttribute(E,3));simG.add(new THREE.LineSegments(tg,M.tile));
+ // 벽: 뒤·왼쪽·오른쪽은 높게, 앞은 낮게
+ [[0,1.4,BACK,RS+WT,2.8,WT],[-RS/2,1.4,0,WT,2.8,RS],[RS/2,1.4,0,WT,2.8,RS],[0,.15,RS/2,RS+WT,.3,WT]].forEach(([x,y,z,w,h,d])=>{const m=edges(new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M.wall));m.castShadow=m.receiveShadow=true;add(m,x,y,z)});
+ // 소화기함 (시제품): 벽에서 바닥 6cm 위
+ const w=.6,h=.9,dp=.1,y0=.06,face=BACK+WT/2+dp;S.face=face;S.w=w;S.h=h;S.y0=y0;
+ const body=edges(new THREE.Mesh(new THREE.BoxGeometry(w,h,dp),M.steel));body.castShadow=true;add(body,0,y0+h/2,BACK+WT/2+dp/2);
+ add(new THREE.Mesh(new THREE.PlaneGeometry(w*.9,h*.92),M.faceFE),0,y0+h/2,face+.003);
+ // 초음파 4개 (네 모서리): ① 왼쪽 위 ② 오른쪽 위 ③ 왼쪽 아래 ④ 오른쪽 아래
+ const pcb=new THREE.MeshLambertMaterial({color:0x2b62b0}),eye=new THREE.MeshLambertMaterial({color:0xb9bec4}),eyeIn=new THREE.MeshBasicMaterial({color:0x1d1f22});
+ const sx=w/2-.09,syT=y0+h-.08,syB=y0+.1;S.sens=[[-sx,syT],[sx,syT],[-sx,syB],[sx,syB]].map(([x,y])=>{
+  const g=new THREE.Group();g.position.set(x,y,face+.012);simG.add(g);
+  const b=new THREE.Mesh(new THREE.BoxGeometry(.11,.05,.012),pcb);g.add(b);
+  [-.026,.026].forEach(ex=>{const c=new THREE.Mesh(new THREE.CylinderGeometry(.016,.016,.02,16),eye);c.rotation.x=Math.PI/2;c.position.set(ex,0,.012);g.add(c);const i=new THREE.Mesh(new THREE.CircleGeometry(.011,16),eyeIn);i.position.set(ex,0,.023);g.add(i)});
+  const bm=new THREE.MeshBasicMaterial({transparent:true,depthWrite:false}),bg=new THREE.BoxGeometry(.018,.018,1);bg.translate(0,0,.5);const beam=new THREE.Mesh(bg,bm);beam.position.z=.03;g.add(beam);
+  const hit=new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial());g.add(hit);
+  return{g,beam,hit}});
+ // PIR (문 중앙 약간 위)
+ const pir=new THREE.Mesh(new THREE.SphereGeometry(.04,20,12,0,Math.PI*2,0,Math.PI/2),new THREE.MeshLambertMaterial({color:0xf4f4f2}));pir.rotation.x=Math.PI/2;add(pir,0,y0+h*.66,face+.005);S.pirPt=new THREE.Vector3(0,y0+h*.66,face);
+ // LED 16개 (문 위 막대)
+ S.leds=[];for(let i=0;i<16;i++){const m=new THREE.Mesh(new THREE.SphereGeometry(.018,10,8),new THREE.MeshBasicMaterial({color:0x141414}));add(m,-w/2+.03+i*(w-.06)/15,y0+h+.05,BACK+WT/2+.04);S.leds.push(m)}
+ const bar=new THREE.Mesh(new THREE.BoxGeometry(w+.04,.035,.03),new THREE.MeshLambertMaterial({color:0x222222}));add(bar,0,y0+h+.05,BACK+WT/2+.02);
+ // 부저와 소리 고리
+ const bz=new THREE.Mesh(new THREE.CylinderGeometry(.035,.035,.03,20),new THREE.MeshLambertMaterial({color:0x1a1a1a}));bz.rotation.x=Math.PI/2;add(bz,w/2+.12,y0+h*.55,BACK+WT/2+.015);
+ S.waves=[0,1].map(()=>{const m=new THREE.Mesh(new THREE.RingGeometry(.05,.065,28),new THREE.MeshBasicMaterial({transparent:true,depthWrite:false,side:THREE.DoubleSide}));add(m,w/2+.12,y0+h*.55,BACK+WT/2+.04);return m});
+ // 감지 구역 (문 앞, 감지 거리만큼)
+ S.zoneM=new THREE.MeshBasicMaterial({transparent:true,depthWrite:false});const zg=new THREE.PlaneGeometry(1.3,1);zg.rotateX(-Math.PI/2);zg.translate(0,0,.5);S.zone=add(new THREE.Mesh(zg,S.zoneM),0,.012,face);
+ // 거리 눈금 (25cm마다)
+ const RL=[];for(let k=0;k<=6;k++){const z=face+k*.25,L=k%2?.08:.16;RL.push(-.95,.01,z,-.95+L,.01,z)}RL.push(-.95,.01,face,-.95,.01,face+1.5);
+ const rg=new THREE.BufferGeometry();rg.setAttribute('position',new THREE.Float32BufferAttribute(RL,3));simG.add(new THREE.LineSegments(rg,M.line));
+ // 물건과 사람
+ S.obj=edges(new THREE.Mesh(new THREE.BoxGeometry(.45,.42,.45),M.box));S.obj.castShadow=true;add(S.obj,.05,.21,face+.5);S.obj.visible=false;
+ S.person=new THREE.Group();const pb=new THREE.Mesh(new THREE.CylinderGeometry(.17,.15,1.15,18),M.person),ph=new THREE.Mesh(new THREE.SphereGeometry(.13,18,12),M.person);pb.position.y=.62;ph.position.y=1.36;pb.castShadow=ph.castShadow=true;S.person.add(pb,ph);add(S.person,0,0,face+1.1);S.person.visible=false;
+ S.tagPt=new THREE.Vector3(0,y0+h+.42,face);
+}
+const simWorld=v=>simG.localToWorld(v.clone());
+const simCam=()=>{const a=VW()/Math.max(1,VH());return{r:Math.min(9,4.6*Math.max(1,1.45/a)),phi:1.16,theta:-.34,fov:40,tx:C.x,ty:.62,tz:C.z+BACK+.95}};
+function simDmin(){const ds=P.d.filter(v=>v>2&&v<999);return ds.length?Math.min(...ds):null}
+function simTick(t){
+ if(!simOn||!SIM)return;
+ const L=ledOf(byId(P.id),t),live=protoLive(),th=P.th/100;
+ SIM.leds.forEach(m=>m.material.color.setRGB(...(L.c?L.c.map(v=>v/255):[.08,.08,.08])));
+ SIM.zone.scale.z=Math.max(.05,th);SIM.zoneM.color.copy(col(live&&P.object?'--red':'--green'));SIM.zoneM.opacity=live?(P.object?.22:.12):.05;
+ P.d.forEach((v,i)=>{const s=SIM.sens[i];if(!s)return;const none=!live||v>=999,len=none?th:Math.min(v,200)/100,inz=!none&&v>2&&v<=P.th;
+  s.beam.scale.z=Math.max(.01,len-.03);s.beam.material.color.copy(col(inz?'--red':'--line'));s.beam.material.opacity=none?.14:inz?.9:.45;
+  s.hit.visible=!none;s.hit.position.z=len;s.hit.material.color.copy(col(inz?'--red':'--line'))});
+ const dm=simDmin();SIM.obj.visible=live&&P.object&&dm!=null;if(SIM.obj.visible)SIM.obj.position.z=SIM.face+dm/100+.225;
+ SIM.person.visible=live&&P.person;if(SIM.person.visible)SIM.person.position.x=RM?.9:((t/1000*1.1)%5.6)-2.8;
+ SIM.waves.forEach((m,i)=>{const k=(t/650+i*.5)%1,on=live&&L.al&&!P.mute;m.scale.setScalar(1+k*3);m.material.opacity=on?(1-k)*.85:0;m.material.color.copy(col('--red'))});
+}
+function simClick(ray){
+ if(SIM.obj.visible&&ray.intersectObject(SIM.obj,true).length){if(P.src==='sim'&&sim){sim.obj=false;const b=$('#sObj');if(b)b.setAttribute('aria-pressed',false);hudMsg('<b>물건 치움</b> 2초 동안 비어 있으면 정상으로 돌아갑니다.')}return}
+ const hit=new THREE.Vector3();if(!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),hit))return;
+ const lp=simG.worldToLocal(hit.clone()),dist=lp.z-SIM.face;
+ if(Math.abs(lp.x)>1.3||dist<.05||dist>1.5){hudMsg('소화기함 앞 1.5m 안쪽 바닥을 누르면 그 거리에 물건이 놓입니다.');return}
+ if(P.src!=='sim'||!sim){hudMsg(P.src==='ble'?'실제 시제품이 연결돼 있습니다. 실제 물건을 문 앞에 놓아 보세요.':'먼저 오른쪽에서 가상 시제품이나 블루투스를 켜세요.');return}
+ const cm=Math.max(5,Math.min(150,Math.round(dist*100)));sim.obj=true;sim.objCm=cm;
+ const b=$('#sObj');if(b)b.setAttribute('aria-pressed',true);const sc=$('#sCm');if(sc){sc.value=cm;$('#sCmV').textContent=cm+'cm'}
+ hudMsg(`<b>물건 놓음</b> 문 앞 ${cm}cm · 감지 거리 ${P.th}cm ${cm<=P.th?'안쪽이라 곧 경고가 시작됩니다':'밖이라 경고하지 않습니다'}`);
+}
+function toggleSim(on){
+ if(on===simOn)return;simOn=on;$('#tSim').setAttribute('aria-pressed',on);$('#tSim').textContent=on?'건물로 돌아가기':'시뮬 공간';document.body.classList.toggle('simon',on);$('#side').scrollTop=0;
+ if(on){if(intro)endIntro();if(fire)toggleFire(false);if(edit)toggleEdit(false);sel=null;markSel();hideRoute();pickStart=false;mode='sim';
+  if(view==='plan'){view='3d';$('#v3d').setAttribute('aria-pressed',true);$('#vplan').setAttribute('aria-pressed',false);ov.classList.remove('plan');lockPlan(false)}
+  layoutFloors();renderSim();if(gl)goTo(simCam(),1000);hudMsg('<b>시뮬 공간</b> 바닥을 누르면 소화기함 앞에 물건을 놓을 수 있습니다 (가상 시제품일 때).')}
+ else{mode='overview';$('#hud').hidden=true;layoutFloors();renderPanel();if(gl)goTo(view==='plan'?defPlan():def3d(),1000)}
+}
+function renderSim(){
+ const ev=LOG.filter(e=>e.id===P.id).slice(-8).reverse(),ps=protoStatus();
+ panel.innerHTML=`<div class="p"><button class="back" id="back">← 건물로 돌아가기</button>
+ <h2>시뮬 공간</h2><p class="sub">FE-01 시제품 · 블루투스로 연결된 SafeDoor의 상태를 방 안에 그대로 보여줍니다</p>
+ <div class="state"><span class="st" data-s="${ps}">${LAB[ps]}</span><b id="dHead">${protoLive()?FWHEAD[P.st]:'시제품 연결 안 됨'}</b><span class="tm"><span id="dTime">${protoLive()?(P.sec?P.sec+'초째':'실시간'):'신호 없음'}</span></span></div>
+ <p class="why">가상 시제품일 때는 방 바닥에서 소화기함 앞을 누르면 그 거리에 물건이 놓이고, 물건을 누르면 치웁니다. 블루투스로 연결하면 실제 시제품 값이 그대로 들어옵니다.</p>
+ ${secBar()}${protoSection()}
+ ${sec('slog','시제품 기록',ev.length?`<ol class="ev">${ev.map(e=>`<li><span class="sd" data-s="${e.lv}"></span><time>${hm(e.t)}</time><span>${e.m}</span></li>`).join('')}</ol>`:'<p class="why">기록이 없습니다.</p>')}</div>`;
+ $('#back').onclick=()=>toggleSim(false);bindProto();ledKey='';updateProto();bindSecs();
+}
+const simTag=document.createElement('div');simTag.className='simtag';simTag.hidden=true;$('#ov').appendChild(simTag);
+const simLabs=[0,1,2,3].map(()=>{const e=document.createElement('span');e.className='simlab';e.hidden=true;$('#ov').appendChild(e);return e});
+const simRul=[50,100,150].map(c=>{const e=document.createElement('span');e.className='simlab rul';e.textContent=c+'cm';e.hidden=true;$('#ov').appendChild(e);return e});
+function simOverlay(){
+ const live=protoLive(),ps=protoStatus(),wp=v=>{const q=simWorld(v);return projW(q.x,q.y,q.z)};
+ const tp=wp(SIM.tagPt);simTag.hidden=!tp.ok;simTag.dataset.s=ps;
+ const html=`<b>${live?P.st:'연결 안 됨'}</b><span>${live?FWHEAD[P.st]+(P.sec?` · ${P.sec}초`:''):'블루투스나 가상 시제품을 켜세요'}</span>`;if(simTag.innerHTML!==html)simTag.innerHTML=html;
+ simTag.style.transform=`translate(${tp.x}px,${tp.y}px) translate(-50%,-100%)`;
+ const nm=['① 왼쪽 위','② 오른쪽 위','③ 왼쪽 아래','④ 오른쪽 아래'];
+ SIM.sens.forEach((s,i)=>{const v=P.d[i],none=!live||v>=999,len=none?P.th/100:Math.min(v,200)/100,q=s.g.localToWorld(new THREE.Vector3(0,0,len)),p=projW(q.x,q.y,q.z),e=simLabs[i];
+  e.hidden=!p.ok;e.textContent=`${nm[i]} ${none?'없음':v+'cm'}`;e.classList.toggle('in',!none&&v>2&&v<=P.th);e.style.transform=`translate(${p.x}px,${p.y}px) translate(${i%2?'6px':'calc(-100% - 6px)'},-50%)`});
+ simRul.forEach((e,i)=>{const p=wp(new THREE.Vector3(-1,.01,SIM.face+(i+1)*.5));e.hidden=!p.ok;e.style.transform=`translate(${p.x}px,${p.y}px) translate(calc(-100% - 4px),-50%)`});
+}
+const effFloor=()=>view==='plan'&&floorView==='all'?2:floorView;
+function FY(){return scene?scene.position.y:0}
+function layoutFloors(){
+ if(!gl||!scene)return;const e=effFloor(),st=e==='all';
+ if(simG)simG.visible=simOn;
+ if(simOn){scene.visible=false;[1,3,4].forEach(k=>{if(shells[k])shells[k].visible=false});holoGrid.visible=false;return}
+ holoGrid.visible=holo();
+ scene.visible=st||e===2;scene.position.y=st?SP:0;
+ [1,3,4].forEach(k=>{const g=shells[k];if(!g)return;g.visible=st||e===k;g.position.y=st?(k-1)*SP:0});
+ const op=st?1:0;M.shSlab.opacity=st?.28:1;M.shWall.opacity=st?.16:.9;M.shLine.opacity=st?.4:.9;[M.shSlab,M.shWall].forEach(m=>{m.depthWrite=!st;m.needsUpdate=true});
+ if(s1G&&s1G.userData.post)s1G.userData.post.visible=st;
+ if(dl)dl.target.position.y=FY();
+}
+function faceTex(t){
+ const c=document.createElement('canvas'),fe=t==='FE';c.width=128;c.height=fe?200:256;const x=c.getContext('2d');
+ const g=x.createLinearGradient(0,0,128,0);g.addColorStop(0,'#d3d6d9');g.addColorStop(.5,'#f1f2f3');g.addColorStop(1,'#c6cacd');x.fillStyle=g;x.fillRect(0,0,c.width,c.height);
+ x.strokeStyle='#868c92';x.lineWidth=5;x.strokeRect(5,5,c.width-10,c.height-10);
+ x.fillStyle='#6b7178';x.fillRect(20,c.height*.36,13,c.height*.18);
+ x.fillStyle='#c8202a';x.font='bold 30px "IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans CJK KR",sans-serif';x.textAlign='center';x.textBaseline='middle';
+ const w=fe?'소화기함':'소화전',step=(c.height-44)/w.length;[...w].forEach((ch,i)=>x.fillText(ch,80,22+step*(i+.5)));
+ const tx=new THREE.CanvasTexture(c);tx.anisotropy=4;return tx;
+}
+let lockG=null;
+function buildLockers(){
+ if(!gl||!scene)return;
+ if(lockG){lockG.traverse(o=>{if(o.geometry)o.geometry.dispose()});scene.remove(lockG)}
+ lockG=new THREE.Group();scene.add(lockG);
+ const Lk=LOCK.filter(L=>L.k==='locker').map(L=>[(L.x0+L.x1)/2,.5,29.77,L.x1-L.x0,1,.45]),Dk=[];
+ LOCK.filter(L=>L.k==='desk').forEach(L=>{for(let x=L.x0+.32;x<L.x1-.25;x+=.66)Dk.push([x,.36,29.75,.58,.72,.42])});
+ if(Lk.length)boxes(Lk,M.locker,true,lockG);if(Dk.length)boxes(Dk,M.desk,false,lockG);
+}
+function addDevMesh(d){
+ if(!gl||!scene)return;
+ const g=new THREE.Group();g.position.set(d.ox,0,d.oz);g.rotation.y=d.th;scene.add(g);d.g=g;
+ const m=edges(new THREE.Mesh(new THREE.BoxGeometry(d.w,d.h,d.dp),M.steel));m.position.set(0,d.y0+d.h/2,d.dp/2);m.castShadow=true;m.userData.id=d.id;g.add(m);d.body=m;devMesh.push(m);
+ const face=new THREE.Mesh(new THREE.PlaneGeometry(d.w*.9,d.h*.92),d.t==='FE'?M.faceFE:M.faceFH);face.position.set(0,d.y0+d.h/2,d.dp+.004);g.add(face);
+ if(d.t==='FH'){const lamp=new THREE.Mesh(new THREE.SphereGeometry(.06,16,10),M.lamp);lamp.position.set(-d.w*.2,d.y0+d.h-.14,d.dp+.03);g.add(lamp)}
+ d.ledM=new THREE.MeshBasicMaterial({color:0x111111});const led=new THREE.Mesh(new THREE.BoxGeometry(d.w,.05,.05),d.ledM);led.position.set(0,d.y0+d.h+.06,.05);g.add(led);
+ const R2=.8+d.week*.07,hp=d.at(d.dp+.6);d.hMat=new THREE.MeshBasicMaterial({map:heatTex,transparent:true,opacity:.55,depthWrite:false,color:col('--red')});
+ d.heat=flat(R2*2,R2*2,d.hMat,hp.x,hp.z,.014);d.heat.receiveShadow=false;
+ d.og=new THREE.Group();scene.add(d.og);buildObs(d);applyVis(d);
+}
+function removeDevMesh(d){
+ if(!d.g)return;
+ [d.g,d.heat,d.og].forEach(o=>{if(!o)return;o.traverse(c=>{if(c.geometry)c.geometry.dispose()});scene.remove(o)});
+ const i=devMesh.indexOf(d.body);if(i>=0)devMesh.splice(i,1);d.g=d.heat=d.og=d.body=null;
+}
+function applyVis(d){if(!d.g)return;const v=shown(d);d.g.visible=v;d.og.visible=v;d.heat.visible=v&&layers.heat}
+function buildObs(d){
+ d.obs=[];if(!gl||!d.og)return;
+ while(d.og.children.length){const c=d.og.children.pop();c.geometry.dispose()}
+ const at=(n,t)=>({x:d.ox+d.nx*n+d.tx*t,z:d.oz+d.nz*n+d.tz*t});
+ const add=(w,h,dd,n,t,y,ry=0)=>{const p=at(n,t),m=edges(new THREE.Mesh(new THREE.BoxGeometry(w,h,dd),M.box));m.position.set(p.x,y,p.z);m.rotation.y=d.th+ry;m.castShadow=true;d.og.add(m);const e=Math.max(w,dd)/2;d.obs.push([p.x-e,p.z-e,p.x+e,p.z+e])};
+ const stack=()=>{const n=d.dp+.38;add(.6,.46,.46,n,-.12,.23,.12);add(.46,.34,.4,n,.05,.63,-.2);add(.42,.4,.4,n+.08,.5,.2,.3)};
+ if(d.proto){if(protoLive()&&P.object)stack();return}
+ if(d.st==='danger')stack();
+ if(d.st==='caution'){add(.9,.75,.55,d.dp+.55,1.35,.4);add(.05,.5,.5,d.dp+.55,1.82,.95)}
+}
+function paintDev(d){if(!gl||!d.hMat)return;d.hMat.color.copy(col('--red'))}
+const holo=()=>document.documentElement.dataset.skin==='holo';
+function applyTheme(){
+ if(!gl||!M.room)return;
+ const H=holo(),see=H||layers.xray;
+ const map={room:'--room',corr:'--corr',wc:'--wc',stair:'--stair',wall:'--wall',desk:'--desk',board:'--board',dev:'--red',box:'--box',ink:'--ink',base:'--wall',face:'--bg',locker:'--locker',steel:'--steel',person:'--mute'};
+ for(const k in map)M[k].color.copy(col(map[k]));
+ if(H){M.base.color.copy(col('--corr'));M.face.color.copy(col('--soft'))}
+ M.gym.color.copy(col('--mute'));M.maskBox.color.copy(col('--scene'));M.maskTop.color.copy(col('--scene'));M.maskSl.forEach(m=>m.color.copy(col('--scene')));
+ if(M.tile)M.tile.color.copy(col('--line'));
+ if(M.shSlab){M.shSlab.color.copy(col('--room'));M.shWall.color.copy(col('--wall'));M.shLine.color.copy(col('--line'))}if(maskG)maskG.visible=layers.mask;
+ [M.faceFE,M.faceFH].forEach(m=>m.color.copy(H?col('--line'):new THREE.Color(0xffffff)));M.lamp.color.copy(col('--red'));
+ glassM.forEach(m=>{m.transparent=see;m.opacity=!see?1:H?(m===M.desk?.16:.07):(m===M.desk?.38:.16);m.depthWrite=!see;m.needsUpdate=true});
+ M.line.color.copy(col('--line'));M.line.opacity=H?.9:see?.75:1;M.line.blending=H?THREE.AdditiveBlending:THREE.NormalBlending;M.line.needsUpdate=true;
+ holoGrid.visible=H;M.holoFloor.color.copy(col('--line'));
+ holoGround.visible=H;holoGround.material.color=col('--grid');
+ dl.castShadow=!see;
+ renderer.setClearColor(col('--scene'));
+ DEV.forEach(paintDev);
+ if(lastRoute)showRoute(lastRoute);
+ if(fire)runFire(fire,true);
+}
+new MutationObserver(applyTheme).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','data-skin']});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
+
+/* ---------- LED (펌웨어 outputs()와 같은 색과 점멸) ---------- */
+const RGB={G:[0,255,0],O:[255,130,0],R:[255,0,0]};
+function ledOf(d,t){
+ const slow=Math.floor(t/500)%2===1,fast=Math.floor(t/250)%2===1;
+ if(d.proto){
+  if(!protoLive()||!P.en)return{c:null,buz:false};
+  const v=P.st==='RECHECK'?P.resume:P.st;
+  const c=v==='CLEAR'||v==='COUNTING'?RGB.G:v==='PERSON'?(slow?RGB.G:null):v==='YELLOW'?RGB.O:v==='RED'?(slow?RGB.R:null):v==='ADMIN'?(fast?RGB.R:null):null;
+  const al=v==='RED'||v==='ADMIN';return{c,buz:al&&!P.mute&&(v==='ADMIN'?fast:slow),al};
+ }
+ if(fire&&d.st!=='off')return{c:fast?RGB.R:[255,255,255]};
+ if(d.st==='off')return{c:null};if(d.st==='normal')return{c:RGB.G};if(d.st==='caution')return{c:RGB.O};return{c:slow?RGB.R:null};
+}
+let ledKey='';
+function ledTick(t){
+ DEV.forEach(d=>{const L=ledOf(d,t);if(d.ledM)d.ledM.color.setRGB(...(L.c?L.c.map(v=>v/255):[.07,.07,.07]))});
+ const ring=$('#ring');if(!ring)return;const L=ledOf(byId(P.id),t),k=(L.c||'off')+'|'+L.buz;if(k===ledKey)return;ledKey=k;
+ const c=L.c?`rgb(${L.c.join(',')})`:'#2b2b2b';ring.style.setProperty('--led',c);ring.style.setProperty('--glow',L.c?c:'transparent');
+ const bz=$('#pBuz');if(bz)bz.textContent=!protoLive()?'부저 · 연결 안 됨':P.mute?'부저 · 음소거':L.buz?'부저 · 울리는 중':L.al?'부저 · 점멸 사이':'부저 · 대기';
+}
+
+/* ---------- 경로 그리기 ---------- */
+function clearPath(k){const g=pathG[k];if(!g||!scene)return;g.traverse(o=>{if(o.geometry)o.geometry.dispose()});scene.remove(g);delete pathG[k]}
+function drawPath(k,pts,c,w=.34,token=true,op=1){
+ if(!gl||!pts||!scene)return;clearPath(k);const g=new THREE.Group(),mat=new THREE.MeshBasicMaterial({color:c,transparent:op<1,opacity:op,depthWrite:op>=1});let cum=[0];
+ for(let i=0;i<pts.length-1;i++){const p=pts[i],q=pts[i+1],dx=q.x-p.x,dz=q.z-p.z,L=Math.hypot(dx,dz);cum.push(cum[i]+L);const m=new THREE.Mesh(new THREE.BoxGeometry(L,.03,w),mat);m.position.set((p.x+q.x)/2,.06,(p.z+q.z)/2);m.rotation.y=-Math.atan2(dz,dx);g.add(m)}
+ pts.forEach(p=>{const j=new THREE.Mesh(new THREE.CylinderGeometry(w/2,w/2,.03,16),mat);j.position.set(p.x,.06,p.z);g.add(j)});
+ const e=pts[pts.length-1],ring=new THREE.Mesh(new THREE.RingGeometry(.42,.6,32),mat);ring.rotation.x=-Math.PI/2;ring.position.set(e.x,.07,e.z);g.add(ring);
+ if(token&&!RM){const tk=new THREE.Mesh(new THREE.SphereGeometry(.3,16,12),mat);tk.position.y=.32;g.add(tk);g.userData={tk,pts,cum}}
+ scene.add(g);pathG[k]=g;
+}
+function moveTokens(t){for(const k in pathG){const u=pathG[k].userData;if(!u.tk)continue;const L=u.cum[u.cum.length-1];if(L<.1)continue;const s=(t/1000*6)%L;let i=1;while(i<u.cum.length-1&&u.cum[i]<s)i++;const a=u.pts[i-1],b=u.pts[i],f=(s-u.cum[i-1])/((u.cum[i]-u.cum[i-1])||1);u.tk.position.x=a.x+(b.x-a.x)*f;u.tk.position.z=a.z+(b.z-a.z)*f}}
+const secs=(m,v)=>Math.round(m/v);
+function routeTo(d){
+ const g=grid();
+ if(START.f!==1){const r=astar(START,d.front,g);return r&&{...r,total:r.len}}
+ let best=null;
+ for(const e of EXITS){const r=astar({x:e.x,z:e.z},d.front,g);if(!r)continue;const d1=Math.hypot(e.x-START.x,e.z-START.z)*1.3,tot=d1+STAIR+r.len;if(!best||tot<best.total)best={...r,total:tot,d1,stair:e}}
+ return best;
+}
+function clearS1(){if(s1G){s1G.traverse(o=>{if(o.geometry)o.geometry.dispose()});s1G.parent&&s1G.parent.remove(s1G);s1G=null}}
+function drawS1(r){
+ clearS1();if(!gl||!shells[1]||!r.stair)return;
+ const c=col(holo()?'--line':'--ink'),mat=new THREE.MeshBasicMaterial({color:c}),g=new THREE.Group(),a=START,b=r.stair,L=Math.hypot(b.x-a.x,b.z-a.z);
+ const m=new THREE.Mesh(new THREE.BoxGeometry(L,.03,.3),mat);m.position.set((a.x+b.x)/2,.06,(a.z+b.z)/2);m.rotation.y=-Math.atan2(b.z-a.z,b.x-a.x);g.add(m);
+ const ring=new THREE.Mesh(new THREE.RingGeometry(.42,.6,32),mat);ring.rotation.x=-Math.PI/2;ring.position.set(a.x,.07,a.z);g.add(ring);
+ const post=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,SP,12),mat);post.position.set(b.x,SP/2,b.z);g.add(post);g.userData.post=post;post.visible=effFloor()==='all';
+ shells[1].add(g);s1G=g;
+}
+function showRoute(d){
+ lastRoute=d;const r=routeTo(d);
+ if(!r){$('#hud').hidden=false;$('#hud').textContent='경로를 찾지 못했습니다.';clearS1();return}
+ drawPath('route',r.pts,gl?col(holo()?'--line':'--ink'):0);d.route=r;
+ if(START.f===1)drawS1(r);else clearS1();
+ const T=r.total,hud=$('#hud');hud.hidden=false;
+ hud.innerHTML=START.f===1?`<b>관리자(${START.n}) → ${d.id}</b> 1층 약 ${Math.round(r.d1)} m + ${r.stair.n} ${STAIR} m + 2층 ${Math.round(r.len)} m = ${Math.round(T)} m · 걸어서 ${secs(T,WALK)}초 · 뛰어서 ${secs(T,RUN)}초`
+  :`<b>관리자(${START.n}) → ${d.id}</b> ${Math.round(T)} m · 걸어서 ${secs(T,WALK)}초 · 뛰어서 ${secs(T,RUN)}초`;
+}
+function setStart(s){
+ Object.assign(START,{n:s.n,x:s.x,z:s.z,f:s.f||2});
+ if(startMesh){startMesh.position.set(START.x,.04,START.z);startMesh.visible=START.f===2}
+ startTag.innerHTML=`<em style="color:var(--ink)">관리자 출발${START.f===1?' (1층)':''}</em>`;
+ if(lastRoute)showRoute(lastRoute);else{clearS1();hudMsg(`<b>관리자 출발</b> ${esc(START.n)}`)}
+ if(mode==='overview'||mode==='device')renderPanel();
+}
+let pickStart=false;
+const startPicker=()=>`<label class="stp" for="stSel"><span>관리자 출발</span><select id="stSel">${STARTS.map((s,i)=>`<option value="${i}"${START.n===s.n?' selected':''}>${s.n}</option>`).join('')}${STARTS.some(s=>s.n===START.n)?'':`<option value="cur" selected>${esc(START.n)}</option>`}<option value="pick">지도에서 직접 찍기</option></select></label>`;
+function bindStart(){const s=$('#stSel');if(!s)return;s.onchange=()=>{if(s.value==='pick'){pickStart=true;if(effFloor()!==2&&effFloor()!=='all')setFloor(2);hudMsg('<b>출발 위치 찍기</b> 2층 평면 위를 누르면 그 자리가 관리자 출발 위치가 됩니다.');return}if(s.value!=='cur')setStart(STARTS[+s.value])}}
+function hideRoute(){lastRoute=null;clearPath('route');clearS1();$('#hud').hidden=true}
+
+/* ---------- 카메라 ---------- */
+let anim=null,intro=false;
+function fitDist(fov){const t=Math.tan(fov*Math.PI/360),a=VW()/Math.max(1,VH());return Math.max((BD+4)/(2*t),(BW+4)/(2*t*a))}
+const def3d=()=>effFloor()==='all'?{r:Math.min(240,fitDist(40)*1.28),phi:1.0,theta:-.42,fov:40,tx:C.x,ty:SP*1.5,tz:C.z}:{r:Math.min(210,fitDist(40)*1.1),phi:.9,theta:-.38,fov:40,tx:C.x,ty:0,tz:C.z};
+const defPlan=()=>({r:fitDist(24),phi:.0001,theta:0,fov:24,tx:C.x,ty:0,tz:C.z});
+function cur(){const s=new THREE.Spherical().setFromVector3(cam.position.clone().sub(ctl.target));return{r:s.radius,phi:s.phi,theta:s.theta,fov:cam.fov,tx:ctl.target.x,ty:ctl.target.y,tz:ctl.target.z}}
+function applyCam(s){ctl.target.set(s.tx,s.ty||0,s.tz);cam.position.copy(ctl.target).add(new THREE.Vector3().setFromSphericalCoords(s.r,s.phi,s.theta));cam.fov=s.fov;cam.updateProjectionMatrix();cam.lookAt(ctl.target)}
+function goTo(to,ms,done,from){
+ if(!gl)return;from=from||cur();
+ if(!intro){let dt=to.theta-from.theta;dt=((dt+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;to={...to,theta:from.theta+dt}}
+ anim={from,to,t0:performance.now(),ms:RM?0:ms,done};ctl.enabled=false;
+}
+function lockPlan(on){ctl.enableRotate=!on;ctl.minPolarAngle=on?.0001:0;ctl.maxPolarAngle=on?.0001:1.35}
+const focusPt=d=>({x:d.front.x,z:d.front.z});
+function setView(v){
+ if(simOn)toggleSim(false);
+ view=v;$('#v3d').setAttribute('aria-pressed',v==='3d');$('#vplan').setAttribute('aria-pressed',v==='plan');ov.classList.toggle('plan',v==='plan');
+ if(!gl)return;
+ if(v==='plan'){const p=sel?focusPt(byId(sel)):null,t=p?{...defPlan(),r:defPlan().r*.55,tx:p.x,tz:p.z}:defPlan();layoutFloors();goTo(t,900,()=>lockPlan(true))}
+ else{lockPlan(false);layoutFloors();goTo(sel?focus3d(byId(sel)):def3d(),900)}
+}
+const focus3d=d=>({r:32,phi:.86,theta:cur().theta,fov:40,tx:d.front.x,ty:FY(),tz:d.front.z});
+function fit(){if(!gl)return;simOn?goTo(simCam(),800):view==='plan'?goTo(defPlan(),800):goTo(def3d(),800)}
+
+/* ---------- 화면 위 이름표와 표지 ---------- */
+const v3=gl?new THREE.Vector3():null;
+function projW(x,y,z){v3.set(x,y,z).project(cam);return{x:(v3.x*.5+.5)*VW(),y:(-v3.y*.5+.5)*VH(),ok:v3.z<1}}
+function proj(x,y,z){v3.set(x,y+FY(),z).project(cam);return{x:(v3.x*.5+.5)*VW(),y:(-v3.y*.5+.5)*VH(),ok:v3.z<1}}
+ROOMS.forEach(r=>{const el=document.createElement('span');el.className='rl';el.innerHTML=r.n+(r.t==='stair'?'<em>대피 계단</em>':'');r.lw=r.n.length*12.5+8;r.el=el;ov.appendChild(el)});
+const gymTag=document.createElement('span');gymTag.className='rl gymtag';gymTag.innerHTML='← 체육관 연결';ov.appendChild(gymTag);
+const ftags=[1,2,3,4].map(k=>{const b=document.createElement('button');b.className='ftag';b.textContent=k+'층';b.onclick=()=>setFloor(floorView===k?'all':k);ov.appendChild(b);return b});
+const startTag=document.createElement('span');startTag.className='rl st0';startTag.innerHTML='<em style="color:var(--ink)">관리자 출발</em>';ov.appendChild(startTag);
+const mkClass=d=>'mk '+(d.t==='FH'?'fh ':'fe ')+(d.nz>0?'n':d.nz<0?'s':'w')+(d.id===(edit?editSel:sel)?' sel':'');
+function addMarker(d){
+ const el=document.createElement('div');el.className=mkClass(d);el.dataset.s=d.st;
+ el.innerHTML=`<button class="pin" aria-label="${d.id} ${KIND[d.t]}"><span class="dot"></span>${d.id}<small>주 ${d.week}회</small><i class="fd"></i></button>`;
+ el.querySelector('button').addEventListener('click',e=>{e.stopPropagation();if(fire)return;if(edit){editSel=d.id;markSel();renderEdit();return}select(d.id)});
+ d.el=el;ov.appendChild(el);
+}
+DEV.forEach(addMarker);
+const fireTag=document.createElement('div');fireTag.className='tag';fireTag.textContent='화재 지점';fireTag.hidden=true;ov.appendChild(fireTag);
+function overlay(){
+ const e=effFloor(),st=e==='all';
+ if(simOn){ftags.forEach(b=>b.style.display='none');ROOMS.forEach(r=>r.el.style.display='none');DEV.forEach(d=>d.el.style.display='none');gymTag.style.display='none';startTag.style.display='none';fireTag.hidden=true;simOverlay();return}
+ if(simTag&&!simTag.hidden){simTag.hidden=true;simLabs.forEach(x=>x.hidden=true);simRul.forEach(x=>x.hidden=true)}
+ ftags.forEach((b,i)=>{const k=i+1,on=st||e===k,y=st?(k-1)*SP:0,p=projW(84,y+.2,39);b.style.display=on&&p.ok?'':'none';b.classList.toggle('on',e===k);b.style.transform=`translate(${p.x}px,${p.y}px) translate(8px,-50%)`});
+ if(!scene||!scene.visible){ROOMS.forEach(r=>r.el.style.display='none');DEV.forEach(d=>d.el.style.display='none');gymTag.style.display='none';fireTag.hidden=true;
+  if(START.f===1&&shells[1]&&shells[1].visible){const p=projW(START.x,shells[1].position.y+.1,START.z-1.6);startTag.style.display=p.ok?'':'none';startTag.style.transform=`translate(${p.x}px,${p.y}px) translate(-50%,-50%)`}else startTag.style.display='none';return}
+ const mk=layers.mask;
+ ROOMS.forEach(r=>{if(r.masked&&mk){r.el.style.display='none';return}const zc=(r.z0+r.z1)/2,a=proj(r.x0+.4,0,zc),b=proj(r.x1-.4,0,zc),c=proj((r.x0+r.x1)/2,.1,r.t==='class'?zc+1.2:zc);const w=Math.hypot(b.x-a.x,b.y-a.y);
+  if(!c.ok||w<r.lw){r.el.style.display='none';return}r.el.style.display='';r.el.style.transform=`translate(${c.x}px,${c.y}px) translate(-50%,-50%)`});
+ const gp=proj(-7.6,.1,28.5);gymTag.style.display=gp.ok&&!mk?'':'none';gymTag.style.transform=`translate(${gp.x}px,${gp.y}px) translate(-50%,-50%)`;
+ const s=START.f===1?(shells[1]&&shells[1].visible?projW(START.x,shells[1].position.y+.1,START.z-1.6):{ok:false}):proj(START.x,.1,START.z-1.6);startTag.style.display=s.ok&&!(mk&&START.f===2&&underMask(START.z))?'':'none';startTag.style.transform=`translate(${s.x}px,${s.y}px) translate(-50%,-50%)`;
+ DEV.forEach(d=>{if(!shown(d)||mk&&underMask(d.pin.z)){d.el.style.display='none';return}const p=view==='plan'?proj(d.pin.x,0,d.pin.z):proj(d.pin.x,d.y0+d.h+.5,d.pin.z);d.el.style.display=p.ok?'':'none';d.el.style.transform=`translate(${p.x}px,${p.y}px)`});
+ if(fire){const p=proj(fire.x,1.6,fire.z);fireTag.hidden=!p.ok;fireTag.style.transform=`translate(${p.x}px,${p.y}px) translate(-50%,-100%)`}
+}
+
+/* ---------- 패널 ---------- */
+const panel=$('#panel');
+const OPEN={};
+const sec=(k,title,body,cls='')=>`<details class="sec ${cls}" data-k="${k}"${OPEN[k]===false?'':' open'}><summary>${title}</summary><div class="sb">${body}</div></details>`;
+function bindSecs(){
+ const ds=[...panel.querySelectorAll('details[data-k]')],b=$('#secAll'),upd=()=>{if(b)b.textContent=ds.some(x=>x.open)?'모두 접기':'모두 펼치기'};
+ ds.forEach(el=>el.addEventListener('toggle',()=>{OPEN[el.dataset.k]=el.open;upd()}));
+ if(b)b.onclick=()=>{const any=ds.some(x=>x.open);ds.forEach(x=>{x.open=!any;OPEN[x.dataset.k]=!any});upd()};upd();
+}
+const secBar=()=>`<div class="secbar"><button id="secAll" class="lnk">모두 접기</button></div>`;
+function floorRows(){
+ const cnt={danger:0,caution:0};DEV.forEach(d=>{if(cnt[d.st]!==undefined)cnt[d.st]++});
+ return[4,3,2,1].map(k=>`<button class="row fl" data-f="${k}"><span class="sd" data-s="${k===2?(cnt.danger?'danger':cnt.caution?'caution':'normal'):'off'}"></span><span class="rn"><b>${k}층</b> ${k===2?`설비 ${DEV.length}곳 · 위험 ${cnt.danger} · 주의 ${cnt.caution}`:'설비 등록 전 · 바닥과 벽만'}</span><span class="rv">${effFloor()===k?'보는 중':'이 층만 보기'}</span></button>`).join('');
+}
+function bindFloorRows(){panel.querySelectorAll('.row.fl').forEach(b=>b.onclick=()=>setFloor(+b.dataset.f))}
+function renderFloor(k){
+ panel.innerHTML=`<div class="p"><button class="back" id="back">← 모든 층 보기</button>
+ <h2>${k}층</h2><p class="sub">설비 등록 전 · 2층과 같은 틀로 바닥과 벽만 간단히 그렸습니다</p>
+ ${secBar()}${sec('floors','층별 현황',floorRows())}
+ <p class="note">이 층 소화기함·소화전 사진을 보내주면 2층처럼 위치와 상태를 넣을 수 있습니다.</p></div>`;
+ $('#back').onclick=()=>setFloor('all');bindFloorRows();bindSecs();
+}
+let ackKey=null,autoOpened=false;
+const dangerKey=()=>DEV.filter(d=>d.st==='danger').map(d=>d.id).join(',');
+function autoPick(){
+ const dz=DEV.filter(d=>d.st==='danger'&&shown(d));
+ if(dz.length!==1||ackKey===dangerKey()||fire||edit)return false;
+ const d=dz[0];sel=d.id;mode='device';autoOpened=true;markSel();renderDevice(d);if(routeOn)showRoute(d);return true;
+}
+function hoursChart(a){const mx=Math.max(1,...a),pk=a.indexOf(mx);return`<div class="hrs" role="img" aria-label="시간대별 막힘 횟수">${a.map((v,h)=>`<i style="height:${v/mx*100}%"${h===pk?' class="pk"':''} title="${h}시 ${v}회"></i>`).join('')}</div><div class="hax"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>24시</span></div>`}
+function typeList(t,name,top,order){
+ if(showT!=='all'&&showT!==t)return'';
+ const L=DEV.filter(d=>d.t===t).sort((a,b)=>order[a.st]-order[b.st]||b.week-a.week);if(!L.length)return'';
+ return sec('t'+t,`${name} ${L.length}곳`,`<div class="list">${L.map(d=>`<button class="row" data-id="${d.id}"><span class="sd ${t==='FH'?'sq':''}" data-s="${d.st}"></span><span class="rn"><b>${d.id}</b> ${d.loc}${d.proto?` · ${P.src==='ble'?'시제품 연결됨':P.src==='sim'?'가상 시제품':'시제품 끊김'}`:''}</span><span class="rv">주 ${d.week}회</span><span class="rb"><i style="width:${d.week/Math.max(1,top.week)*100}%"></i></span></button>`).join('')}</div>`);
+}
+function renderOverview(){
+ if(autoPick())return;
+ const cnt={normal:0,caution:0,danger:0,off:0};DEV.forEach(d=>cnt[d.st]++);
+ const tot=DEV.reduce((a,d)=>a+d.week,0),avg=Math.round(DEV.reduce((a,d)=>a+d.avg*d.week,0)/tot);
+ const top=[...DEV].sort((a,b)=>b.week-a.week)[0];
+ const hrs=PAT.map((_,h)=>DEV.reduce((a,d)=>a+d.hours[h],0)),mx=Math.max(...hrs),pk=hrs.indexOf(mx),pct=Math.round(mx/tot*100);
+ const title=cnt.danger?`${cnt.danger}곳이 막혀 문이 열리지 않습니다`:cnt.caution?`${cnt.caution}곳 근처에 물체가 있습니다`:'모든 설비 앞이 비어 있습니다';
+ const order={danger:0,caution:1,off:2,normal:3};
+ panel.innerHTML=`<div class="p">
+ <h2>${title}</h2><p class="sub">2층 · 소화기함 ${DEV.filter(d=>d.t==='FE').length}곳 · 소화전 ${DEV.filter(d=>d.t==='FH').length}곳 · 위험 ${cnt.danger} · 주의 ${cnt.caution}${cnt.off?` · 꺼짐 ${cnt.off}`:''} · ${hm(Date.now())} 기준</p>
+ <div class="figs"><div><b>${tot}회</b><span>이번 주 막힘</span></div><div><b>${avg}분</b><span>평균 해소 시간</span></div><div><b>${top.id}</b><span>가장 잦은 곳</span></div></div>
+ ${startPicker()}
+ ${secBar()}
+ ${sec('hours',`${pk}시대${HLAB[pk]?' '+HLAB[pk]:''}에 막힘이 가장 많습니다 (${pct}%)`,hoursChart(hrs))}
+ ${typeList('FE','소화기함',top,order)}${typeList('FH','옥내소화전',top,order)}
+ ${sec('floors','층별 현황',floorRows())}
+ ${sec('todo','할 일',`<p>가장 자주 막힌 곳은 ${top.id}(${top.loc})입니다. 이번 주 ${top.week}회, 한 번 막히면 평균 ${top.avg}분 갑니다. 근처에 물건 둘 자리를 따로 정해 두는 것을 검토하세요.</p>`)}
+ <p class="note">복정고 피난안내도를 바탕으로 한 근사 도면입니다. 소화기함·소화전 위치는 2층 사진을 보고 옮겼고(일부 추정), 치수와 기록은 예시입니다. FE-01은 시제품(SafeDoor BLE) 자리입니다.</p></div>`;
+ panel.querySelectorAll('.row[data-id]').forEach(b=>b.onclick=()=>select(b.dataset.id));bindFloorRows();bindStart();bindSecs();
+}
+const sensRows=(vals,th,ids)=>vals.map((v,i)=>{const none=v>=999,inz=!none&&v>2&&v<=th;return`<div class="sn"><span>초음파 ${i+1}</span><span class="bar"><i${ids?` id="sb${i}"`:''} class="${inz?'in':''}" style="width:${none?100:Math.min(100,v/2)}%;${none?'opacity:.25':''}"></i><u${ids?' id="sth'+i+'"':''} style="left:${Math.min(100,th/2)}%"></u></span><span class="v"${ids?` id="sv${i}"`:''}>${none?'없음':v>=200?'200+cm':v+'cm'}</span></div>`}).join('');
+function protoSection(){
+ const live=protoLive();
+ return sec('proto','시제품 연결 · SafeDoor BLE',`
+ <div class="acts" style="margin-top:6px"><button id="pBle" class="tg" aria-pressed="${P.src==='ble'}">${P.src==='ble'?'블루투스 끊기':'블루투스로 연결'}</button><button id="pSim" class="tg" aria-pressed="${P.src==='sim'}">가상 시제품</button></div>
+ <p class="why" id="pConn"></p>
+ <div class="ledrow"><div class="ring" id="ring" aria-hidden="true">${Array.from({length:16},(_,i)=>`<i style="transform:rotate(${i*22.5}deg) translate(28px)"></i>`).join('')}</div>
+ <div class="fw"><b id="pFw">${live?P.st:'연결 안 됨'}</b><span id="pFwK">${live?FWHEAD[P.st]:'블루투스나 가상 시제품을 켜세요'}</span><span id="pBuz">부저 · 대기</span></div></div>
+ <div class="flags"><span>사람(PIR) <b id="pPer">${P.person?'감지':'없음'}</b></span><span>물체 <b id="pObj">${P.object?'있음':'없음'}</b></span><span>경과 <b id="pSec">${P.sec}초</b></span></div>
+ ${sensRows(P.d,P.th,true)}
+ <label class="rg" for="pDist"><span>감지 거리 (DIST)</span><b id="pDistV">${P.th}cm</b></label>
+ <input type="range" id="pDist" min="5" max="150" step="5" value="${P.th}"${live?'':' disabled'}>
+ <div class="acts"><button id="pMute" class="tg" aria-pressed="${P.mute}"${live?'':' disabled'}>부저 음소거</button><button id="pEn" class="tg" aria-pressed="${!P.en}"${live?'':' disabled'}>감지 끄기</button><button id="pGet"${live?'':' disabled'}>상태 다시 받기</button></div>
+ <div class="sim" id="simBox"${P.src==='sim'?'':' hidden'}><h3>가상 센서 조작</h3>
+  <div class="acts" style="margin-top:4px"><button id="sObj" class="tg" aria-pressed="${!!(sim&&sim.obj)}">물체 놓기</button><button id="sPir">사람 지나가기</button></div>
+  <label class="rg" for="sCm"><span>물체까지 거리</span><b id="sCmV">${sim?sim.objCm:32}cm</b></label>
+  <input type="range" id="sCm" min="5" max="150" step="1" value="${sim?sim.objCm:32}">
+ </div>
+ <p class="note">펌웨어 규칙 그대로: 물체를 3번 연속 잡으면 감지, 1초 노랑, 3초 빨강과 부저, 6초 관리자 알림(10초마다 다시), 치운 뒤 2초 비어야 정상. 사람(PIR)이 있으면 시간을 재지 않지만 이미 시작된 경고는 취소되지 않습니다.</p>`,'proto');
+}
+function bindProto(){
+ const on=(id,f)=>{const e=$(id);if(e)e.onclick=f};
+ on('#pBle',()=>{if(P.src==='ble'){bleStop();P.src='none';P.msg='블루투스를 끊었습니다.';protoApply(true)}else bleConnect()});
+ on('#pSim',()=>{if(P.src==='sim'){stopSim();P.src='none';P.msg='';protoApply(true)}else{startSim();protoApply(true)}});
+ on('#pMute',()=>send(P.mute?'MUTE,0':'MUTE,1'));
+ on('#pEn',()=>send(P.en?'ENABLE,0':'ENABLE,1'));
+ on('#pGet',()=>send('GET'));
+ on('#sObj',()=>{if(!sim)return;sim.obj=!sim.obj;$('#sObj').setAttribute('aria-pressed',sim.obj)});
+ on('#sPir',()=>{if(sim)sim.pirUntil=performance.now()+400});
+ const ds=$('#pDist');if(ds){ds.oninput=()=>$('#pDistV').textContent=ds.value+'cm';ds.onchange=()=>send('DIST,'+ds.value)}
+ const sc=$('#sCm');if(sc)sc.oninput=()=>{if(sim)sim.objCm=+sc.value;$('#sCmV').textContent=sc.value+'cm'};
+}
+function updateProto(){
+ const live=protoLive(),set=(id,t)=>{const e=$(id);if(e&&e.textContent!==t)e.textContent=t};
+ const conn=P.msg||(P.src==='ble'?`${P.name} 연결됨 · 마지막 신호 ${Math.max(0,Math.round((Date.now()-P.last)/1000))}초 전`:P.src==='sim'?'가상 시제품이 펌웨어와 같은 규칙으로 돌아갑니다.':'연결 안 됨');
+ set('#pConn',conn);
+ if(!$('#ring'))return;
+ set('#pFw',live?P.st+(P.st==='RECHECK'?` (${P.resume} 유지)`:''):'연결 안 됨');set('#pFwK',live?FWHEAD[P.st]:'블루투스나 가상 시제품을 켜세요');
+ set('#pPer',P.person?'감지':'없음');set('#pObj',P.object?'있음':'없음');set('#pSec',P.sec+'초');
+ P.d.forEach((v,i)=>{const b=$('#sb'+i),u=$('#sth'+i);if(!b)return;const none=v>=999,inz=!none&&v>2&&v<=P.th;b.className=inz?'in':'';b.style.width=(none?100:Math.min(100,v/2))+'%';b.style.opacity=none?.25:1;u.style.left=Math.min(100,P.th/2)+'%';set('#sv'+i,none?'없음':v>=200?'200+cm':v+'cm')});
+ const ds=$('#pDist');if(ds&&document.activeElement!==ds){ds.value=P.th;set('#pDistV',P.th+'cm')}
+ const mu=$('#pMute');if(mu)mu.setAttribute('aria-pressed',P.mute);const en=$('#pEn');if(en)en.setAttribute('aria-pressed',!P.en);
+ if($('#dHead'))set('#dHead',live?FWHEAD[P.st]:'시제품 연결 안 됨');
+ if($('#dTime'))set('#dTime',live?(P.sec?`${P.sec}초째`:'실시간'):'신호 없음');
+}
+function renderDevice(d){
+ const s=sens(d),rc=50,now=Date.now();
+ const why=d.st==='danger'?`센서 1·2·3이 감지 거리(${rc}cm) 안에서 물체를 잡았고, 사람 감지(PIR)는 없습니다. 문을 끝까지 열 수 없습니다.`:d.st==='caution'?`센서 2·3이 ${s[1]}cm에서 물체를 잡았지만 감지 거리(${rc}cm) 밖입니다. 사람 감지(PIR)는 없습니다.`:`네 센서 모두 200cm 넘게 비어 있습니다. 사람이 지나가면 PIR로 걸러냅니다.`;
+ const ev=LOG.filter(e=>e.id===d.id).slice(-6).reverse();
+ const repl=d.t==='FE'?`${+d.mk.slice(0,4)+10}-${d.mk.slice(5)}`:'해당 없음';
+ const head=d.proto?`<b id="dHead">${protoLive()?FWHEAD[P.st]:'시제품 연결 안 됨'}</b><span class="tm"><span id="dTime">${protoLive()?(P.sec?P.sec+'초째':'실시간'):'신호 없음'}</span></span>`
+  :`<b>${HEAD[d.st]}</b><span class="tm"><span data-since="${d.since}">${dur(now-d.since)}</span>${d.st==='danger'?` · <span id="stage">${STG[d.stage]}</span>`:d.st==='caution'?' · 1단계 · 노란 표시':''}</span>`;
+ panel.innerHTML=`<div class="p">
+ <button class="back" id="back">← 전체 현황</button>
+ ${autoOpened&&sel===d.id?'<p class="auto">막힌 곳이 1곳뿐이라 바로 보여줍니다</p>':''}
+ <h2>${d.id} ${KIND[d.t]}</h2><p class="sub">2층 ${d.loc} · ${d.guess?d.guess+' 확인 필요':'사진으로 위치 확인'}</p>
+ <div class="state"><span class="st" data-s="${d.st}">${LAB[d.st]}</span>${head}</div>
+ <div class="acts"><button id="route" class="tg" aria-pressed="${routeOn}">관리자 출발점에서 가는 길</button>${d.proto?'':`<button id="done"${d.st==='normal'?' disabled':''}>조치 완료로 기록</button>`}</div>
+ ${startPicker()}
+ ${secBar()}
+ ${d.proto?protoSection():sec('why','판정 근거',`${sensRows(s,rc,false)}<p class="why">${why}</p>`)}
+ ${sec('dhours',`이번 주 ${d.week}회 · 평균 ${d.avg}분 · 최장 ${d.max}분`,hoursChart(d.hours))}
+ ${sec('log','최근 기록',ev.length?`<ol class="ev">${ev.map(e=>`<li><span class="sd" data-s="${e.lv}"></span><time>${hm(e.t)}</time><span>${e.m}</span></li>`).join('')}</ol>`:'<p class="why">오늘 기록이 없습니다.</p>')}
+ ${sec('info','설비 정보',`<table class="kv"><tr><td>종류</td><td>${d.t==='FE'?'분말 ABC 3.3kg 소화기 2대':'옥내소화전 (호스 15m 2본, 노즐)'}</td></tr><tr><td>제조</td><td>${d.mk}</td></tr><tr><td>교체 예정</td><td>${repl}</td></tr><tr><td>최근 점검</td><td>${d.chk}</td></tr><tr><td>근거 사진</td><td>${d.ph||'없음'}${d.guess?' · '+d.guess+' 추정':''}</td></tr><tr><td>감지 거리</td><td>문 앞 ${rc}cm</td></tr><tr><td>센서</td><td>${d.proto?'초음파 4 · PIR 1 · LED 16 · 부저 (오렌지보드 BLE)':'예시 값'}</td></tr></table>`)}
+ ${d.proto?'':sec('demo','시연용 상태 바꾸기',`<div class="seg3">${['normal','caution','danger'].map(k=>`<button data-set="${k}" aria-pressed="${d.st===k}">${LAB[k]}</button>`).join('')}</div><p class="note">선택한 설비에서 키보드 1·2·3으로도 바꿀 수 있습니다.</p>`)}</div>`;
+ $('#back').onclick=deselect;
+ $('#route').onclick=()=>{routeOn=!routeOn;$('#route').setAttribute('aria-pressed',routeOn);routeOn?showRoute(d):hideRoute()};
+ const dn=$('#done');if(dn)dn.onclick=()=>setStatus(d,'normal','관리자 조치 완료 · 정상으로 돌아옴');
+ panel.querySelectorAll('[data-set]').forEach(b=>b.onclick=()=>{if(b.dataset.set!==d.st)setStatus(d,b.dataset.set)});
+ if(d.proto){bindProto();ledKey='';updateProto()}
+ bindStart();bindSecs();
+}
+const josa=id=>'이이가이가가이이이가'[+id.slice(-1)];
+function renderFire(R){
+ const nb=R.near&&R.near.d.st==='danger',u=R.use;
+ const title=!u?'쓸 수 있는 소화기함이 없습니다':nb?`가장 가까운 소화기함 ${R.near.d.id}${josa(R.near.d.id)} 막혀 ${Math.round(R.extra)}\u00a0m 더 가야 합니다`:`가장 가까운 소화기함 ${u.d.id}까지 ${Math.round(u.len)}\u00a0m`;
+ const li=a=>a.map(x=>`<div class="row"><span class="sd" data-s="${x.d.st}"></span><span class="rn"><b>${x.d.id}</b> ${x.d.loc}${x.d.st==='danger'?' · <span class="no">사용 불가</span>':x.d.st==='caution'?' · 주의':''}</span><span class="rv">${Math.round(x.len)} m</span></div>`).join('');
+ panel.innerHTML=`<div class="p"><h2>${title}</h2><p class="sub">화재 지점: 2층 ${R.room} · 평면을 누르면 옮겨집니다</p>
+ <div class="figs"><div><b>${u?Math.round(u.len)+' m':'없음'}</b><span>소화기까지${u?` · 뛰어서 ${secs(u.len,RUN)}초`:''}</span></div><div><b>${R.ex?Math.round(R.ex.len)+' m':'없음'}</b><span>대피 · ${R.ex?R.ex.n:''}</span></div><div><b>${nb?'+'+Math.round(R.extra)+' m':'0 m'}</b><span>막힘 때문에 늘어난 거리</span></div></div>
+ ${secBar()}${sec('ffe','소화기함 (가까운 순)',li(R.fe))}${sec('ffh','옥내소화전 (가까운 순)',li(R.fh))}
+ <section class="sec"><p>${nb?`${R.near.d.id} 앞 적치물이 없었다면 ${Math.round(R.near.len)} m 만에 소화기를 꺼낼 수 있었습니다. 뛰는 속도로 약 ${secs(R.extra,RUN)}초가 더 걸립니다.`:'가장 가까운 소화기함이 비어 있어 바로 쓸 수 있습니다.'}</p></section>
+ <div class="acts"><button id="fend">시뮬레이션 끝내기</button></div>
+ <p class="note">걷기 ${WALK} m/s, 뛰기 ${RUN} m/s, 화재 반경 ${FR} m를 피해 가장 가까운 계단으로 대피하는 길로 계산했습니다. 화재가 나면 층의 모든 소화기함·소화전이 함께 반응합니다. 표시등이 빨강·흰색으로 빠르게 깜빡이고, 바닥에 위치 신호가 퍼지고, 화재 지점에서 각 설비까지 가는 길(소화기함 빨강, 소화전 노랑, 막힌 곳 회색)과 거리가 표지에 뜹니다. 굵은 빨간 길이 실제로 쓸 수 있는 가장 가까운 소화기함입니다.</p></div>`;
+ $('#fend').onclick=()=>toggleFire(false);bindSecs();
+}
+function renderLog(){
+ $('#log').innerHTML='<b>기록</b>'+LOG.slice(-14).reverse().map(e=>`<button class="lg" data-id="${e.id}"><span class="sd" data-s="${e.lv}"></span><time>${hm(e.t)}</time>${e.id} ${e.m}</button>`).join('');
+ $('#log').querySelectorAll('.lg').forEach(b=>b.onclick=()=>{if(!fire&&!edit&&byId(b.dataset.id))select(b.dataset.id)});
+}
+function renderPanel(){mode==='sim'?renderSim():mode==='floor'?renderFloor(floorView):mode==='edit'?renderEdit():mode==='fire'?renderFire(fire.R):mode==='device'?renderDevice(byId(sel)):renderOverview()}
+
+/* ---------- 동작 ---------- */
+function markSel(){DEV.forEach(d=>d.el.classList.toggle('sel',d.id===(edit?editSel:sel)))}
+function select(id){
+ if(intro)endIntro();
+ if(effFloor()!==2&&effFloor()!=='all')setFloor(2,true);
+ autoOpened=false;sel=id;mode='device';markSel();renderPanel();const d=byId(id);
+ if(routeOn)showRoute(d);
+ if(gl)view==='plan'?goTo({...cur(),tx:d.front.x,tz:d.front.z},700):goTo(focus3d(d),900);
+}
+function deselect(){if(autoOpened||DEV.filter(d=>d.st==='danger').length===1)ackKey=dangerKey();autoOpened=false;sel=null;mode='overview';markSel();hideRoute();renderPanel();fit()}
+function setFloor(k,quiet){
+ if(simOn){simOn=false;document.body.classList.remove('simon');$('#tSim').setAttribute('aria-pressed',false);$('#tSim').textContent='시뮬 공간';if(mode==='sim')mode='overview';$('#hud').hidden=true}
+ floorView=k;[['flall','all'],['fl1',1],['fl2',2],['fl3',3],['fl4',4]].forEach(([id,v])=>$('#'+id).setAttribute('aria-pressed',v===k));
+ if(k!==2&&k!=='all'){if(fire)toggleFire(false);if(edit)toggleEdit(false);sel=null;markSel();hideRoute();mode='floor'}
+ else if(mode==='floor')mode='overview';
+ if(k==='all'&&view==='plan'){view='3d';$('#v3d').setAttribute('aria-pressed',true);$('#vplan').setAttribute('aria-pressed',false);ov.classList.remove('plan');lockPlan(false)}
+ layoutFloors();
+ if(!quiet){renderPanel();if(gl)goTo(view==='plan'?defPlan():def3d(),900)}
+ if(lastRoute&&START.f===1)drawS1(lastRoute.route||routeTo(lastRoute));
+}
+function pushLog(e){LOG.push(e);if(LOG.length>300)LOG.splice(0,LOG.length-300);renderLog();if(mode==='device'&&sel===e.id||mode==='sim'&&e.id===P.id){const ol=panel.querySelector('.ev');if(ol){ol.insertAdjacentHTML('afterbegin',`<li><span class="sd" data-s="${e.lv}"></span><time>${hm(e.t)}</time><span>${e.m}</span></li>`);while(ol.children.length>6)ol.lastElementChild.remove()}}}
+function setStatus(d,st,msg){
+ d.st=st;d.since=Date.now();d.stage=st==='danger'?1:0;d.el.dataset.s=st;buildObs(d);paintDev(d);
+ pushLog({t:Date.now(),id:d.id,lv:st,m:msg||MSG[st]});
+ if(fire)runFire(fire);else{if(lastRoute)showRoute(lastRoute);renderPanel()}
+}
+let pObjSeen=null;
+function protoApply(force){
+ const d=byId(P.id),ns=protoStatus(),changed=ns!==d.st,objCh=(protoLive()&&P.object)!==pObjSeen;
+ pObjSeen=protoLive()&&P.object;
+ if(changed){d.st=ns;d.since=Date.now()-P.sec*1000;d.el.dataset.s=ns;paintDev(d)}
+ if(changed||objCh){buildObs(d);if(fire)runFire(fire,mode!=='fire');else if(lastRoute)showRoute(lastRoute)}
+ if(mode==='device'&&sel===d.id){const busy=document.activeElement&&document.activeElement.type==='range';if((changed||force)&&!busy)renderDevice(d);else{updateProto();const st=panel.querySelector('.state .st');if(st){st.dataset.s=d.st;st.textContent=LAB[d.st]}}}
+ else if(mode==='sim'){const busy=document.activeElement&&document.activeElement.type==='range';if(force&&!busy)renderSim();else{updateProto();const st=panel.querySelector('.state .st');if(st){const ps=protoStatus();st.dataset.s=ps;st.textContent=LAB[ps]}}}
+ else if(mode==='overview'&&(changed||force))renderOverview();
+ else if(mode==='fire'&&changed)renderPanel();
+}
+function runFire(p,quiet){
+ const cost=new Float32Array(N);for(let k=0;k<N;k++)if(REG[k]&&Math.hypot(cxOf(k)-p.x,czOf(k)-p.z)<FR)cost[k]=20;
+ const g=grid(),go=d=>{const r=astar(p,d.front,g,cost);return r?{d,len:r.len,pts:r.pts}:null};
+ const fe=DEV.filter(d=>d.t==='FE').map(go).filter(Boolean).sort((a,b)=>a.len-b.len);
+ const fh=DEV.filter(d=>d.t==='FH').map(go).filter(Boolean).sort((a,b)=>a.len-b.len);
+ const ex=EXITS.map(e=>{const r=astar(p,e,g,cost);return r?{n:e.n,len:r.len,pts:r.pts}:null}).filter(Boolean).sort((a,b)=>a.len-b.len)[0];
+ const near=fe[0],use=fe.find(x=>x.d.st!=='danger');
+ fire={x:p.x,z:p.z,R:{room:roomAt(p.x,p.z),fe,fh,ex,near,use,extra:use&&near?use.len-near.len:0}};
+ DEV.forEach(d=>{const x=[...fe,...fh].find(q=>q.d===d),e=d.el&&d.el.querySelector('.fd');if(e)e.textContent=x?Math.round(x.len)+'\u00a0m':'못 감'});
+ if(gl){
+  Object.keys(pathG).filter(k=>k.startsWith('r_')).forEach(clearPath);clearPath('ext');clearPath('evac');clearPath('blk');
+  [...fe,...fh].forEach(x=>{if(x===use||x===near&&x.d.st==='danger')return;drawPath('r_'+x.d.id,x.pts,x.d.st==='danger'?col('--mute'):col(x.d.t==='FH'?'--yellow':'--red'),.12,false,.55)});
+  if(use)drawPath('ext',use.pts,col('--red'));
+  if(ex)drawPath('evac',ex.pts,col('--green'));
+  if(near&&near.d.st==='danger')drawPath('blk',near.pts,col('--mute'),.16,false);
+  if(fireG){fireG.traverse(o=>{if(o.geometry)o.geometry.dispose()});scene.remove(fireG)}
+  fireG=new THREE.Group();const rm=new THREE.MeshBasicMaterial({color:col('--red'),transparent:true,opacity:.16,depthWrite:false});
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(FR,48),rm);disc.rotation.x=-Math.PI/2;disc.position.set(p.x,.03,p.z);
+  const cone=new THREE.Mesh(new THREE.ConeGeometry(.45,1.3,20),new THREE.MeshLambertMaterial({color:col('--red')}));cone.position.set(p.x,.65,p.z);
+  fireG.add(disc,cone);fireRings=[];
+  DEV.filter(shown).forEach((d,i)=>{const m=new THREE.Mesh(new THREE.RingGeometry(.45,.62,40),new THREE.MeshBasicMaterial({color:col(d.st==='danger'?'--mute':'--red'),transparent:true,depthWrite:false}));m.rotation.x=-Math.PI/2;m.position.set(d.pin.x+d.nx*.4,.05,d.pin.z+d.nz*.4);m.userData.ph=i*.17;fireG.add(m);fireRings.push(m)});
+  scene.add(fireG);
+ }
+ if(!quiet)renderPanel();
+}
+function toggleFire(on){
+ if(on&&simOn)toggleSim(false);
+ $('#tFire').setAttribute('aria-pressed',on);document.body.classList.toggle('fire',on);document.querySelectorAll('.lf').forEach(e=>e.hidden=!on);
+ if(on){if(edit)toggleEdit(false);if(intro)endIntro();if(effFloor()!==2&&effFloor()!=='all')setFloor(2,true);sel=null;markSel();hideRoute();mode='fire';runFire({x:50.5,z:34});
+  const h=$('#hud');h.hidden=false;h.innerHTML='<b>화재 시뮬레이션</b> 평면 위를 누르면 화재 지점이 옮겨집니다.';fit()}
+ else{fire=null;mode='overview';Object.keys(pathG).filter(k=>k.startsWith('r_')).forEach(clearPath);['ext','evac','blk'].forEach(clearPath);fireRings=[];if(fireG){scene.remove(fireG);fireG=null}fireTag.hidden=true;$('#hud').hidden=true;renderPanel()}
+}
+
+/* ---------- 위치 찍기 (임시 도구 · 좌표를 다 받으면 지운다) ---------- */
+const r1=v=>Math.round(v*10)/10;
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dirName=d=>d.nz<0?'북쪽':d.nz>0?'남쪽':d.nx<0?'서쪽':'동쪽';
+const hudMsg=h=>{const e=$('#hud');e.hidden=false;e.innerHTML=h};
+function coordText(){return['// SafeDoor 2층 설비 위치 · x, z 단위 m · 마지막 두 숫자는 설비가 바라보는 방향','// D(번호, 종류, 위치 이름, x, z, 방향x, 방향z)',...DEV.map(d=>`D('${d.id}','${d.t}','${d.loc.replace(/'/g,'')}',${r1(d.x)},${r1(d.z)},${d.nx},${d.nz}) // ${KIND[d.t]} · ${dirName(d)}을 바라봄 · 앞: ${roomAt(d.front.x,d.front.z)}${d.added?' · 새로 추가':d.moved?' · 옮김':''}`)].join('\n')}
+function snapWall(p,d){
+ let best=null,bd=1.8;
+ for(const[x1,z1,x2,z2]of WALLS){const h=z1===z2,qx=h?Math.min(Math.max(p.x,x1),x2):x1,qz=h?z1:Math.min(Math.max(p.z,z1),z2),dd=Math.hypot(p.x-qx,p.z-qz);if(dd<bd){bd=dd;best={h,x1,z1,x2,z2,qx,qz}}}
+ if(!best)return null;const m=d.w/2+.05;let{qx,qz}=best;
+ if(best.h)qx=best.x2-best.x1>2*m?Math.min(Math.max(qx,best.x1+m),best.x2-m):(best.x1+best.x2)/2;
+ else qz=best.z2-best.z1>2*m?Math.min(Math.max(qz,best.z1+m),best.z2-m):(best.z1+best.z2)/2;
+ let nx=best.h?0:(Math.sign(p.x-qx)||1),nz=best.h?(Math.sign(p.z-qz)||1):0;
+ const inside=(a,b)=>{const k=ci(a,b);return k>=0&&REG[k]>0};
+ if(!inside(qx+nx*.6,qz+nz*.6)&&inside(qx-nx*.6,qz-nz*.6)){nx=-nx;nz=-nz}
+ return{x:r1(qx),z:r1(qz),nx:nx||0,nz:nz||0};
+}
+function refreshDev(d){placeDev(d);rebuildStatic();removeDevMesh(d);addDevMesh(d);buildLockers();d.el.className=mkClass(d);renderEdit()}
+function editClick(ray){
+ const hit=new THREE.Vector3();if(!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-FY()),hit))return;
+ const d=editSel&&byId(editSel);
+ if(!d){const h=ray.intersectObjects(devMesh,false)[0];if(h){editSel=h.object.userData.id;markSel();renderEdit();return}
+  hudMsg(`<b>찍은 곳</b> x ${r1(hit.x)} · z ${r1(hit.z)} · ${roomAt(hit.x,hit.z)}`);return}
+ const sn=snapWall(hit,d);
+ if(!sn){hudMsg('벽에서 너무 멉니다. 설비가 붙은 벽 가까이를 누르세요.');return}
+ Object.assign(d,sn);d.moved=true;refreshDev(d);
+ hudMsg(`<b>${d.id}</b> → x ${d.x} · z ${d.z} · ${dirName(d)}을 바라봄 · 앞: ${roomAt(d.front.x,d.front.z)}`);
+}
+function addDev(t){
+ const n=Math.max(0,...DEV.filter(d=>d.t===t).map(d=>+d.id.slice(3)||0))+1,id=`${t}-${String(n).padStart(2,'0')}`;
+ const d=D(id,t,'새 위치',22,27,0,1,{f:0,ago:0,added:true});initDev(d);d.stage=0;DEV.push(d);
+ rebuildStatic();addDevMesh(d);addMarker(d);buildLockers();editSel=id;markSel();renderEdit();
+ hudMsg(`<b>${id}</b> 추가함 · 평면도에서 실제 자리의 벽을 누르세요`);
+}
+function delDev(d){removeDevMesh(d);d.el.remove();DEV.splice(DEV.indexOf(d),1);editSel=null;rebuildStatic();buildLockers();renderEdit();hudMsg(`<b>${d.id}</b> 삭제함`)}
+function renderEdit(){
+ const s=editSel&&byId(editSel);
+ panel.innerHTML=`<div class="p">
+ <h2>설비 위치 찍기</h2><p class="sub">임시 도구 · 다 찍은 뒤 아래 좌표를 복사해서 보내주세요</p>
+ <ol class="steps"><li>목록이나 평면도에서 옮길 설비를 고릅니다.</li><li>평면도에서 그 설비가 붙은 벽의 바깥쪽(설비가 보이는 쪽)을 누릅니다. 가장 가까운 벽에 붙습니다.</li><li>위치 이름을 고친 뒤 좌표 복사를 누릅니다.</li></ol>
+ <div class="acts"><button id="eAddFE">소화기함 추가</button><button id="eAddFH">소화전 추가</button></div>
+ ${s?`<section class="sec ed"><h3>${s.id} ${KIND[s.t]}</h3><label class="rg" for="eLoc"><span>위치 이름</span></label><input id="eLoc" type="text" value="${esc(s.loc)}"><p class="why">x ${r1(s.x)} · z ${r1(s.z)} · ${dirName(s)}을 바라봄 · 앞: ${roomAt(s.front.x,s.front.z)}</p><div class="acts"><button id="eFlip">방향 뒤집기</button><button id="eDel"${s.proto?' disabled title="시제품 자리는 지울 수 없습니다"':''}>삭제</button><button id="eOff">고르기 해제</button></div></section>`
+  :'<p class="why" style="margin-top:16px">고른 설비가 없습니다. 지금 평면도를 누르면 그 자리 좌표만 보여줍니다.</p>'}
+ ${['FE','FH'].map(t=>`<section class="sec"><h3>${t==='FE'?'소화기함':'옥내소화전'} ${DEV.filter(d=>d.t===t).length}곳</h3>${DEV.filter(d=>d.t===t).map(d=>`<button class="row erow${d.id===editSel?' on':''}" data-id="${d.id}"><span class="sd ${t==='FH'?'sq':''}" data-s="${d.added||d.moved?'caution':'normal'}"></span><span class="rn"><b>${d.id}</b> ${esc(d.loc)}</span><span class="rv">${r1(d.x)}, ${r1(d.z)}</span></button>`).join('')}</section>`).join('')}
+ <section class="sec"><h3>보낼 좌표</h3><textarea id="eOut" readonly rows="9" aria-label="설비 좌표">${esc(coordText())}</textarea><div class="acts"><button id="eCopy">좌표 복사</button><span class="why" id="eMsg" style="margin:0!important;align-self:center">${copyMsg}</span></div></section>
+ <p class="note">노란 점은 옮기거나 새로 추가한 설비입니다. 새로고침하면 바뀐 위치가 사라지니 그 전에 복사하세요.</p></div>`;
+ const on=(id,f)=>{const e=$(id);if(e)e.onclick=f};
+ on('#eAddFE',()=>addDev('FE'));on('#eAddFH',()=>addDev('FH'));
+ on('#eFlip',()=>{s.nx=-s.nx||0;s.nz=-s.nz||0;s.moved=true;refreshDev(s)});
+ on('#eDel',()=>delDev(s));on('#eOff',()=>{editSel=null;markSel();renderEdit()});
+ const loc=$('#eLoc');if(loc)loc.oninput=()=>{s.loc=loc.value;$('#eOut').value=coordText()};
+ panel.querySelectorAll('.erow').forEach(b=>b.onclick=()=>{editSel=b.dataset.id;markSel();renderEdit();const d=byId(editSel);if(gl)goTo({...cur(),tx:d.front.x,tz:d.front.z},600)});
+ on('#eCopy',()=>{const t=coordText(),msg=m=>{copyMsg=m;const e=$('#eMsg');if(e)e.textContent=m};
+  try{navigator.clipboard.writeText(t).then(()=>msg('복사했습니다'),()=>{$('#eOut').select();msg('Ctrl+C로 직접 복사하세요')})}catch(e){$('#eOut').select();msg('Ctrl+C로 직접 복사하세요')}});
+}
+function toggleEdit(on){
+ if(on&&simOn)toggleSim(false);
+ edit=on;$('#tEdit').setAttribute('aria-pressed',on);
+ if(on){if(intro)endIntro();if(fire)toggleFire(false);if(effFloor()!==2&&effFloor()!=='all')setFloor(2,true);sel=null;editSel=null;copyMsg='';hideRoute();mode='edit';markSel();renderEdit();if(view!=='plan')setView('plan');hudMsg('<b>위치 찍기</b> 설비를 고른 뒤 평면도에서 벽을 누르세요.')}
+ else{editSel=null;mode='overview';markSel();$('#hud').hidden=true;renderPanel()}
+}
+
+/* ---------- 입력 ---------- */
+let down=null;
+canvas.addEventListener('pointerdown',e=>{if(intro){endIntro();return}down={x:e.clientX,y:e.clientY,t:performance.now()}});
+canvas.addEventListener('pointerup',e=>{
+ if(!down||!gl)return;const moved=Math.hypot(e.clientX-down.x,e.clientY-down.y);const quick=performance.now()-down.t<500;down=null;if(moved>6||!quick)return;
+ const rc=canvas.getBoundingClientRect(),m=new THREE.Vector2((e.clientX-rc.left)/rc.width*2-1,-((e.clientY-rc.top)/rc.height)*2+1),ray=new THREE.Raycaster();ray.setFromCamera(m,cam);
+ if(simOn){simClick(ray);return}
+ if(!scene.visible)return;
+ if(pickStart){const hit=new THREE.Vector3();if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-FY()),hit)){const k=ci(hit.x,hit.z);if(k>=0&&REG[k]){pickStart=false;setStart({n:`직접 고른 곳 (${roomAt(hit.x,hit.z)})`,x:r1(hit.x),z:r1(hit.z),f:2});return}}hudMsg('건물 안쪽을 누르세요.');return}
+ if(edit){editClick(ray);return}
+ if(fire){const hit=new THREE.Vector3();if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-FY()),hit)){const k=ci(hit.x,hit.z);if(k>=0&&REG[k]&&!SB[k])runFire({x:hit.x,z:hit.z})}return}
+ const h=ray.intersectObjects(devMesh,false)[0];if(h)select(h.object.userData.id);
+});
+const tog=(id,k,f)=>{$(id).onclick=()=>{layers[k]=!layers[k];$(id).setAttribute('aria-pressed',layers[k]);f()}};
+$('#v3d').onclick=()=>setView('3d');
+$('#vplan').onclick=()=>setView('plan');
+$('#tFit').onclick=fit;
+$('#tFire').onclick=()=>toggleFire(!fire);
+tog('#tHeat','heat',()=>{ov.classList.toggle('heat',layers.heat);if(gl)DEV.forEach(applyVis)});
+function setFilter(t){showT=t;[['fall','all'],['fFE','FE'],['fFH','FH']].forEach(([id,k])=>$('#'+id).setAttribute('aria-pressed',k===t));DEV.forEach(applyVis);if(sel&&!shown(byId(sel)))deselect();else if(mode==='overview')renderOverview()}
+$('#fall').onclick=()=>setFilter('all');$('#fFE').onclick=()=>setFilter('FE');$('#fFH').onclick=()=>setFilter('FH');
+$('#tEdit').onclick=()=>toggleEdit(!edit);
+$('#tSim').onclick=()=>toggleSim(!simOn);
+$('#flall').onclick=()=>setFloor('all');[1,2,3,4].forEach(k=>$('#fl'+k).onclick=()=>setFloor(k));
+$('#pCol').onclick=()=>{const m=$('main'),c=!m.classList.contains('col');m.classList.toggle('col',c);$('#pCol').setAttribute('aria-expanded',!c);$('#pCol').textContent=c?'현황 펼치기':'접기'};
+tog('#tLab','lab',()=>ov.classList.toggle('nolab',!layers.lab));
+tog('#tMask','mask',()=>{if(maskG)maskG.visible=layers.mask});
+tog('#tXray','xray',applyTheme);
+$('#tSkin').onclick=()=>{const on=!holo();if(on)document.documentElement.dataset.skin='holo';else delete document.documentElement.dataset.skin;$('#tSkin').setAttribute('aria-pressed',on);try{localStorage.setItem('sd-skin',on?'holo':'')}catch(e){}};
+addEventListener('keydown',e=>{
+ if(e.target.closest&&e.target.closest('input,textarea'))return;
+ if(intro){endIntro();return}
+ const d=sel&&byId(sel);
+ if(e.key==='Escape'){simOn?toggleSim(false):edit?toggleEdit(false):fire?toggleFire(false):sel&&deselect()}
+ else if(d&&!fire&&['1','2','3'].includes(e.key)){if(d.proto){if(sim){sim.obj=e.key!=='1';const b=$('#sObj');if(b)b.setAttribute('aria-pressed',sim.obj)}}else{const st=['normal','caution','danger'][+e.key-1];if(d.st!==st)setStatus(d,st)}}
+ else if(e.key==='v'||e.key==='V')setView(view==='plan'?'3d':'plan');
+ else if(e.key==='f'||e.key==='F')toggleFire(!fire);
+ else if(e.key==='x'||e.key==='X')$('#tXray').click();
+});
+// 다른 코드에서 쓰는 입구: SafeDoor.feed('T,RED,0,1,30,34,47,999,4,50,1,0') 또는 SafeDoor.set('FE-03','danger')
+window.SafeDoor={feed:onLine,send,set:(id,st)=>{const d=byId(id);if(d&&!d.proto&&LAB[st]&&d.st!==st)setStatus(d,st)},get devices(){return DEV.map(d=>d.id)},route:id=>{const d=byId(id);return d?routeTo(d):null}};
+
+/* ---------- 시간 ---------- */
+setInterval(()=>{
+ const now=Date.now();document.querySelectorAll('[data-since]').forEach(el=>el.textContent=dur(now-+el.dataset.since));
+ DEV.forEach(d=>{if(d.proto||d.st!=='danger')return;const s=stageOf(now-d.since);if(s!==d.stage){d.stage=s;pushLog({t:now,id:d.id,lv:'danger',m:STG[s]});const el=$('#stage');if(el&&sel===d.id)el.textContent=STG[s]}});
+ if(P.src==='ble'&&now-P.last>4000&&!P.msg)P.msg='시제품 신호가 4초 넘게 없습니다.';
+ else if(P.src==='ble'&&now-P.last<=4000&&P.msg==='시제품 신호가 4초 넘게 없습니다.')P.msg='';
+ updateProto();
+},1000);
+
+/* ---------- 시작 ---------- */
+function endIntro(){if(!intro)return;intro=false;$('#skip').hidden=true;if(anim)anim.t0=-1e9}
+try{if(localStorage.getItem('sd-skin')==='holo'){document.documentElement.dataset.skin='holo';$('#tSkin').setAttribute('aria-pressed','true')}}catch(e){}
+startSim();
+renderLog();
+if(gl){
+ build();
+ const resize=()=>{const w=VW(),h=VH();renderer.setSize(w,h,false);cam.aspect=w/Math.max(1,h);cam.updateProjectionMatrix()};
+ const ro=new ResizeObserver(resize);ro.observe(viewEl);resize();
+ const end=def3d(),start={...end,r:end.r*1.45,phi:.55,theta:end.theta-2*Math.PI};
+ applyCam(start);
+ if(RM)applyCam(end);else{intro=true;$('#skip').hidden=false;goTo(end,7500,()=>{intro=false;$('#skip').hidden=true},start)}
+ const loop=t=>{
+  if(anim){const k=anim.ms?Math.min(1,(performance.now()-anim.t0)/anim.ms):1,e=k<.5?4*k*k*k:1-((2-2*k)**3)/2,s={};for(const key in anim.to)s[key]=anim.from[key]+(anim.to[key]-anim.from[key])*e;applyCam(s);if(k>=1){const dn=anim.done;anim=null;ctl.enabled=true;ctl.update();if(dn)dn()}}
+  else ctl.update();
+  moveTokens(t);ledTick(t);simTick(t);
+  if(fire&&!RM)fireRings.forEach(m=>{const k=(t/1400+m.userData.ph)%1;m.scale.setScalar(1+k*2.2);m.material.opacity=.85*(1-k)});renderer.render(world,cam);overlay();requestAnimationFrame(loop);
+ };
+ requestAnimationFrame(loop);
+}else{setInterval(()=>ledTick(performance.now()),100)}
+renderPanel();if(mode==='device'&&sel&&routeOn)showRoute(byId(sel));
+window.__sd={REG,WALLS,ROOMS,astar,grid,START,DEV,proj:(x,z)=>gl?proj(x,0,z):null,setFloor,setStart};
+}
+
+</script>
+</body>
+</html>
